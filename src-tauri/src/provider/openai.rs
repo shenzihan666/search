@@ -113,7 +113,16 @@ impl OpenAIClient {
             .chat()
             .create(request)
             .await
-            .map_err(|e| format!("API error: {}", e))?;
+            .map_err(|e| {
+                let error_str = e.to_string();
+                if error_str.contains("429") {
+                    "Rate limit exceeded (429). Please wait a moment and try again.".to_string()
+                } else if error_str.contains("401") {
+                    "Invalid API key. Please check your API key in settings.".to_string()
+                } else {
+                    format!("API error: {}", error_str)
+                }
+            })?;
 
         let content = response
             .choices
@@ -155,7 +164,19 @@ impl OpenAIClient {
             .chat()
             .create_stream(request)
             .await
-            .map_err(|e| format!("API error: {}", e))?;
+            .map_err(|e| {
+                // Provide more helpful error messages
+                let error_str = e.to_string();
+                if error_str.contains("429") {
+                    "Rate limit exceeded (429). Please wait a moment and try again, or check your API quota.".to_string()
+                } else if error_str.contains("401") {
+                    "Invalid API key. Please check your API key in settings.".to_string()
+                } else if error_str.contains("403") {
+                    "Access forbidden. Please check your API key permissions.".to_string()
+                } else {
+                    format!("API error: {}", error_str)
+                }
+            })?;
 
         while let Some(result) = stream.next().await {
             match result {
@@ -167,7 +188,11 @@ impl OpenAIClient {
                     }
                 }
                 Err(e) => {
-                    return Err(format!("Stream error: {}", e));
+                    let error_str = e.to_string();
+                    if error_str.contains("429") {
+                        return Err("Rate limit exceeded during stream. Please wait and try again.".to_string());
+                    }
+                    return Err(format!("Stream error: {}", error_str));
                 }
             }
         }

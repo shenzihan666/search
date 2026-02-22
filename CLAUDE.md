@@ -34,6 +34,14 @@ npm run preview      # Preview built frontend
 npm run tauri        # Run Tauri CLI commands
 ```
 
+## Key Features
+
+- **Simplified UI**: Minimal search bar with input and send button only
+- **Separate Settings Window**: Configuration accessed via system tray (not inline modal)
+- **Focus-based Hiding**: Main window auto-hides when losing focus
+- **Better Error Messages**: User-friendly messages for rate limits (429), auth errors (401), permission errors (403)
+- **Multi-Provider Support**: OpenAI and Google Gemini with easy switching
+
 ## Architecture
 
 ### Tech Stack
@@ -42,10 +50,13 @@ npm run tauri        # Run Tauri CLI commands
 - **AI Integration**: async-openai crate (supports OpenAI and Gemini via OpenAI-compatible API)
 
 ### Frontend Structure (`src/`)
-- `App.svelte` - Main app component, handles window events and streaming responses
+- `App.svelte` - Main app component, handles window events and streaming responses (simplified UI - search box only)
 - `lib/components/SearchBox.svelte` - Input field with submit handling
 - `lib/components/ResultPanel.svelte` - Displays streaming AI responses
-- `lib/components/ConfigModal.svelte` - Provider/API key/model settings
+
+### Settings Window
+- `settings.html` - Standalone settings window for provider/API key/model configuration
+- Accessible via system tray right-click menu (Settings option)
 
 ### Backend Structure (`src-tauri/src/`)
 - `main.rs` - Entry point, calls `app_lib::run()`
@@ -65,9 +76,11 @@ npm run tauri        # Run Tauri CLI commands
 - Streaming: Backend emits `query:chunk` events, frontend listens via `@tauri-apps/api/event`
 
 ### Window Behavior
-- Window starts hidden, toggles via Alt+Space global shortcut
+- Main window starts hidden, toggles via Alt+Space global shortcut
+- Main window auto-hides when it loses focus (clicking outside)
 - Close button hides window instead of closing (close-to-tray)
-- System tray icon with Show/Quit menu
+- System tray icon with Show/Settings/Quit menu
+- Settings window accessible from system tray
 
 ### Configuration
 - `ProviderConfig` struct holds: `api_key`, `model`, `provider_type` (openai/gemini), optional `base_url`
@@ -78,6 +91,7 @@ npm run tauri        # Run Tauri CLI commands
 
 ### Rust (Cargo.toml)
 - `tauri` v2.10.0 with tray-icon feature
+- `tauri-plugin-global-shortcut` v2 - Global hotkey support (Alt+Space)
 - `tauri-plugin-global-shortcut` v2
 - `async-openai` v0.28 - OpenAI API client with streaming
 - `tokio` with full features for async runtime

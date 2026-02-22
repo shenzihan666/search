@@ -7,7 +7,7 @@ use tauri::{
     tray::{MouseButton, MouseButtonState, TrayIconBuilder, TrayIconEvent},
     Emitter, Manager, WindowEvent,
 };
-use tauri_plugin_global_shortcut::{Code, GlobalShortcutExt, Modifiers, Shortcut};
+use tauri_plugin_global_shortcut::{Code, GlobalShortcutExt, Modifiers, Shortcut, ShortcutState};
 use tokio::sync::RwLock;
 
 // Tauri command to query OpenAI
@@ -104,7 +104,11 @@ pub fn run() {
             let shortcut = Shortcut::new(Some(Modifiers::ALT), Code::Space);
             let app_handle = app.handle().clone();
 
-            app.global_shortcut().on_shortcut(shortcut, move |_app, _shortcut, _event| {
+            app.global_shortcut().on_shortcut(shortcut, move |_app, _shortcut, event| {
+                if event.state != ShortcutState::Pressed {
+                    return;
+                }
+
                 if let Some(window) = app_handle.get_webview_window("main") {
                     if window.is_visible().unwrap_or(false) {
                         let _ = window.hide();
@@ -117,8 +121,9 @@ pub fn run() {
 
             // Setup system tray
             let show_item = MenuItem::with_id(app, "show", "Show", true, None::<&str>)?;
+            let settings_item = MenuItem::with_id(app, "settings", "Settings", true, None::<&str>)?;
             let quit_item = MenuItem::with_id(app, "quit", "Quit", true, None::<&str>)?;
-            let menu = Menu::with_items(app, &[&show_item, &quit_item])?;
+            let menu = Menu::with_items(app, &[&show_item, &settings_item, &quit_item])?;
 
             let app_handle = app.handle().clone();
             let _tray = TrayIconBuilder::new()
@@ -128,6 +133,12 @@ pub fn run() {
                 .on_menu_event(|app, event| match event.id.as_ref() {
                     "show" => {
                         if let Some(window) = app.get_webview_window("main") {
+                            let _ = window.show();
+                            let _ = window.set_focus();
+                        }
+                    }
+                    "settings" => {
+                        if let Some(window) = app.get_webview_window("settings") {
                             let _ = window.show();
                             let _ = window.set_focus();
                         }
@@ -160,12 +171,21 @@ pub fn run() {
             // Handle window close event - hide instead of close (close to tray)
             let window = app.get_webview_window("main").unwrap();
             window.on_window_event(move |event| {
-                if let WindowEvent::CloseRequested { api, .. } = event {
-                    api.prevent_close();
-                    // Hide the window instead of closing
-                    if let Some(window) = app_handle.get_webview_window("main") {
-                        let _ = window.hide();
+                match event {
+                    WindowEvent::CloseRequested { api, .. } => {
+                        api.prevent_close();
+                        // Hide the window instead of closing
+                        if let Some(window) = app_handle.get_webview_window("main") {
+                            let _ = window.hide();
+                        }
                     }
+                    WindowEvent::Focused(false) => {
+                        // Hide window when it loses focus
+                        if let Some(window) = app_handle.get_webview_window("main") {
+                            let _ = window.hide();
+                        }
+                    }
+                    _ => {}
                 }
             });
 
