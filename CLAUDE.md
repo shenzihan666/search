@@ -104,3 +104,59 @@ npm run tauri        # Run Tauri CLI commands
 ## OpenSpec
 
 This project uses OpenSpec for change management. Specs are in `openspec/changes/ai-quick-search/specs/` covering features like global-hotkey, multi-model-query, model-provider, result-comparison, system-tray, autostart, and query-history.
+
+## Documentation
+
+### Documentation Structure
+
+All project documentation is organized in the `docs/` directory with enterprise-level structure:
+
+- `docs/architecture/` - System design and technical architecture
+- `docs/api/` - API references and command documentation
+- `docs/guides/` - User and developer guides
+- `docs/development/` - Development workflow and code standards
+- `docs/operations/` - Installation, deployment, and maintenance
+- `docs/ai-generated/` - AI-assistant generated documentation
+
+### AI-Generated Documentation Policy
+
+**AI-generated documentation MUST be archived in the `docs/ai-generated/` directory according to type:**
+
+- **`docs/ai-generated/features/`** - New features, enhancements, implementations
+- **`docs/ai-generated/fixes/`** - Bug fixes, patches, technical resolutions
+- **`docs/ai-generated/reviews/`** - Code reviews, analysis summaries
+- **`docs/ai-generated/investigations/`** - Research, debugging, exploration results
+
+**Documentation Template:**
+```markdown
+# [Title]
+
+**Generated**: {Date}
+**AI Assistant**: Claude Code
+**Related Files**: [file paths]
+
+## Overview
+[Brief description]
+
+## Context
+[Background information]
+
+## Implementation/Analysis
+[Technical content]
+
+## Results/Outcomes
+[What was achieved/discovered]
+
+## Related Files
+- [path/to/file.ext](../../path/to/file.ext) - Description
+```
+
+**Naming Conventions:**
+- Features: `{feature-name}.md` (e.g., `global-hotkey.md`)
+- Fixes: `{issue-id}-{description}.md` or `{description}-fix.md`
+- Reviews: `review-{date}-{component}.md`
+- Investigations: `investigation-{topic}.md`
+
+**Always update the corresponding INDEX.md file when adding new documentation.**
+
+See `docs/ai-generated/README.md` for detailed guidelines and templates.

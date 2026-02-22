@@ -14,18 +14,21 @@
       {
         "label": "main",
         "title": "AI Quick Search",
-        "width": 600,
+        "width": 800,
         "height": 200,
-        "minWidth": 400,
+        "minWidth": 600,
         "minHeight": 150,
         "resizable": true,
         "fullscreen": false,
         "visible": false,
         "decorations": false,
         "transparent": true,
+        "shadow": false,
         "alwaysOnTop": true,
         "skipTaskbar": true,
-        "center": true
+        "center": false,
+        "x": -1,
+        "y": 200
       },
       {
         "label": "settings",
@@ -64,5 +67,10 @@
       "icons/icon.icns",
       "icons/icon.ico"
     ]
+  },
+  "plugins": {
+    "sql": {
+      "preload": ["sqlite:config.db"]
+    }
   }
 }

@@ -16,6 +16,8 @@ pub enum ProviderType {
     OpenAI,
     #[serde(rename = "gemini")]
     Gemini,
+    #[serde(rename = "zhipu")]
+    Zhipu,
 }
 
 impl Default for ProviderType {
@@ -72,6 +74,14 @@ impl OpenAIClient {
                 // Gemini OpenAI-compatible API
                 let base = config.base_url.as_deref()
                     .unwrap_or("https://generativelanguage.googleapis.com/v1beta/openai");
+                OpenAIConfig::new()
+                    .with_api_key(&config.api_key)
+                    .with_api_base(base)
+            }
+            ProviderType::Zhipu => {
+                // Zhipu AI (BigModel) OpenAI-compatible API
+                let base = config.base_url.as_deref()
+                    .unwrap_or("https://open.bigmodel.cn/api/paas/v4");
                 OpenAIConfig::new()
                     .with_api_key(&config.api_key)
                     .with_api_base(base)

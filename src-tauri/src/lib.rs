@@ -82,6 +82,7 @@ pub fn run() {
 
     tauri::Builder::default()
         .plugin(tauri_plugin_global_shortcut::Builder::new().build())
+        .plugin(tauri_plugin_sql::Builder::default().build())
         .manage(openai_client)
         .invoke_handler(tauri::generate_handler![
             query,
@@ -113,6 +114,17 @@ pub fn run() {
                     if window.is_visible().unwrap_or(false) {
                         let _ = window.hide();
                     } else {
+                        // Center horizontally, position near top vertically
+                        if let Ok(Some(monitor)) = window.current_monitor() {
+                            let size = monitor.size();
+                            let window_size = window.outer_size().unwrap_or(tauri::PhysicalSize::new(800, 200));
+                            
+                            let x = (size.width as i32 - window_size.width as i32) / 2;
+                            let y = (size.height as f64 * 0.2) as i32; // 20% from top
+                            
+                            let _ = window.set_position(tauri::PhysicalPosition::new(x, y));
+                        }
+                        
                         let _ = window.show();
                         let _ = window.set_focus();
                     }
@@ -133,6 +145,15 @@ pub fn run() {
                 .on_menu_event(|app, event| match event.id.as_ref() {
                     "show" => {
                         if let Some(window) = app.get_webview_window("main") {
+                            if let Ok(Some(monitor)) = window.current_monitor() {
+                                let size = monitor.size();
+                                let window_size = window.outer_size().unwrap_or(tauri::PhysicalSize::new(800, 200));
+                                
+                                let x = (size.width as i32 - window_size.width as i32) / 2;
+                                let y = (size.height as f64 * 0.2) as i32;
+                                
+                                let _ = window.set_position(tauri::PhysicalPosition::new(x, y));
+                            }
                             let _ = window.show();
                             let _ = window.set_focus();
                         }
@@ -160,6 +181,15 @@ pub fn run() {
                             if window.is_visible().unwrap_or(false) {
                                 let _ = window.hide();
                             } else {
+                                if let Ok(Some(monitor)) = window.current_monitor() {
+                                    let size = monitor.size();
+                                    let window_size = window.outer_size().unwrap_or(tauri::PhysicalSize::new(800, 200));
+                                    
+                                    let x = (size.width as i32 - window_size.width as i32) / 2;
+                                    let y = (size.height as f64 * 0.2) as i32;
+                                    
+                                    let _ = window.set_position(tauri::PhysicalPosition::new(x, y));
+                                }
                                 let _ = window.show();
                                 let _ = window.set_focus();
                             }
@@ -170,6 +200,18 @@ pub fn run() {
 
             // Handle window close event - hide instead of close (close to tray)
             let window = app.get_webview_window("main").unwrap();
+            
+            // Set initial position
+            if let Ok(Some(monitor)) = window.current_monitor() {
+                let size = monitor.size();
+                let window_size = window.outer_size().unwrap_or(tauri::PhysicalSize::new(800, 200));
+                
+                let x = (size.width as i32 - window_size.width as i32) / 2;
+                let y = (size.height as f64 * 0.2) as i32;
+                
+                let _ = window.set_position(tauri::PhysicalPosition::new(x, y));
+            }
+            
             window.on_window_event(move |event| {
                 match event {
                     WindowEvent::CloseRequested { api, .. } => {

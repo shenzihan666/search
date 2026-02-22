@@ -139,6 +139,7 @@
       <select id="provider">
         <option value="openai">OpenAI</option>
         <option value="gemini">Google Gemini</option>
+        <option value="zhipu">智谱 AI (BigModel)</option>
       </select>
     </div>
 
@@ -173,6 +174,10 @@
   <script type="module">
     import { invoke } from '@tauri-apps/api/core';
     import { getCurrentWindow } from '@tauri-apps/api/window';
+    import Database from '@tauri-apps/plugin-sql';
+
+    const DB_URL = 'sqlite:config.db';
+    let db = null;
 
     const openaiModels = [
       { value: 'gpt-4o-mini', label: 'GPT-4o Mini (Fast, Cheap)' },
@@ -187,6 +192,16 @@
       { value: 'gemini-1.5-pro', label: 'Gemini 1.5 Pro' },
     ];
 
+    const zhipuModels = [
+      { value: 'glm-4-flash', label: 'GLM-4-Flash (快速)' },
+      { value: 'glm-4-plus', label: 'GLM-4-Plus (增强)' },
+      { value: 'glm-4', label: 'GLM-4 (标准)' },
+      { value: 'glm-4-air', label: 'GLM-4-Air (轻量)' },
+      { value: 'glm-4-airx', label: 'GLM-4-AirX (极速)' },
+      { value: 'glm-4-long', label: 'GLM-4-Long (长文本)' },
+      { value: 'glm-4v-plus', label: 'GLM-4V-Plus (多模态)' },
+    ];
+
     const providerSelect = document.getElementById('provider');
     const apiKeyInput = document.getElementById('api-key');
     const apiKeyLabel = document.getElementById('api-key-label');
@@ -198,14 +213,69 @@
 
     let isSaving = false;
 
+    // Initialize database and config table
+    async function initDatabase() {
+      try {
+        db = await Database.load(DB_URL);
+        await db.execute(`
+          CREATE TABLE IF NOT EXISTS config (
+            id INTEGER PRIMARY KEY,
+            data TEXT NOT NULL
+          )
+        `);
+      } catch (e) {
+        console.error('Failed to initialize database:', e);
+      }
+    }
+
+    // Load config from database
+    async function loadConfigFromDb() {
+      try {
+        const result = await db.select('SELECT data FROM config WHERE id = 1');
+        if (result && result.length > 0) {
+          return JSON.parse(result[0].data);
+        }
+      } catch (e) {
+        console.error('Failed to load config from database:', e);
+      }
+      return null;
+    }
+
+    // Persist config to database
+    async function saveConfigToDb(config) {
+      if (!db) {
+        await initDatabase();
+      }
+      const configJson = JSON.stringify(config);
+      await db.execute(
+        'INSERT OR REPLACE INTO config (id, data) VALUES (1, $1)',
+        [configJson]
+      );
+    }
+
     // Load config on start
     async function loadConfig() {
       try {
-        const config = await invoke('get_config');
+        await initDatabase();
+        let config = await loadConfigFromDb();
+
+        // Fallback to backend in-memory config
+        if (!config) {
+          config = await invoke('get_config');
+        }
+
         apiKeyInput.value = config.api_key || '';
         providerSelect.value = config.provider_type || 'openai';
         updateModelOptions(config.provider_type || 'openai');
-        modelSelect.value = config.model || 'gpt-4o-mini';
+
+        // Set default model based on provider
+        let defaultModel = 'gpt-4o-mini';
+        if (config.provider_type === 'gemini') {
+          defaultModel = 'gemini-2.0-flash';
+        } else if (config.provider_type === 'zhipu') {
+          defaultModel = 'glm-4-flash';
+        }
+        modelSelect.value = config.model || defaultModel;
       } catch (e) {
         console.error('Failed to load config:', e);
       }
@@ -213,7 +283,17 @@
 
     function updateModelOptions(provider) {
       modelSelect.innerHTML = '';
-      const models = provider === 'gemini' ? geminiModels : openaiModels;
+      let models;
+      switch (provider) {
+        case 'gemini':
+          models = geminiModels;
+          break;
+        case 'zhipu':
+          models = zhipuModels;
+          break;
+        default:
+          models = openaiModels;
+      }
       models.forEach(m => {
         const option = document.createElement('option');
         option.value = m.value;
@@ -229,6 +309,13 @@
         apiKeyInput.placeholder = 'AIza...';
         hintLink.href = 'https://aistudio.google.com/app/apikey';
         hintLink.style.display = 'block';
+        hintLink.textContent = 'Get your Gemini API key';
+      } else if (provider === 'zhipu') {
+        apiKeyLabel.textContent = '智谱 API Key';
+        apiKeyInput.placeholder = 'xxx.xxxxxxxx...';
+        hintLink.href = 'https://open.bigmodel.cn/api-keys';
+        hintLink.style.display = 'block';
+        hintLink.textContent = '获取智谱 API Key';
       } else {
         apiKeyLabel.textContent = 'OpenAI API Key';
         apiKeyInput.placeholder = 'sk-...';
@@ -255,13 +342,17 @@
       saveBtn.textContent = 'Saving...';
 
       try {
-        await invoke('set_config', {
-          config: {
-            api_key: apiKeyInput.value.trim(),
-            model: modelSelect.value,
-            provider_type: providerSelect.value
-          }
-        });
+        const config = {
+          api_key: apiKeyInput.value.trim(),
+          model: modelSelect.value,
+          provider_type: providerSelect.value
+        };
+
+        // Save in-memory for current process
+        await invoke('set_config', { config });
+        // Persist across restarts
+        await saveConfigToDb(config);
+
         showStatus('Settings saved successfully!', 'success');
         setTimeout(() => {
           getCurrentWindow().close();
