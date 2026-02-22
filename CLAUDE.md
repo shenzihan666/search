@@ -6,6 +6,18 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 
 AI Quick Search is a lightweight desktop AI search bar application with multi-model support. It runs as a system tray app with a global hotkey (Alt+Space) to quickly toggle the search window.
 
+## Development Environment
+
+- **Platform**: Windows 11
+- **Shell**: PowerShell (NOT Git Bash)
+- Always use PowerShell syntax for shell commands
+- Path separator: backslash `\` or forward slash `/` both work in PowerShell
+- Examples:
+  - List files: `Get-ChildItem` or `ls` (alias)
+  - Remove file: `Remove-Item path` or `rm path` (alias)
+  - Copy file: `Copy-Item src dest` or `cp src dest` (alias)
+  - Environment variables: `$env:VAR_NAME` (e.g., `$env:TAURI_DEBUG`)
+
 ## Commands
 
 ```bash
