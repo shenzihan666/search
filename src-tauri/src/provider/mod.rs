@@ -1,3 +1,3 @@
-pub mod openai;
+mod openai;
 
-pub use openai::{OpenAIClient, ProviderConfig};
+pub use openai::{query_stream, ProviderConfig};

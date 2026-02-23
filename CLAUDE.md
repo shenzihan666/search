@@ -1,162 +1,94 @@
 # CLAUDE.md
 
-This file provides guidance to Claude Code (claude.ai/code) when working with code in this repository.
+This file provides working guidance for coding agents in this repository.
 
 ## Project Overview
 
-AI Quick Search is a lightweight desktop AI search bar application with multi-model support. It runs as a system tray app with a global hotkey (Alt+Space) to quickly toggle the search window.
+AI Quick Search is a Tauri desktop launcher-style app.
+- Tray application with global shortcut `Alt+Space` to toggle the main window.
+- React frontend with command-palette style UI.
+- Rust backend currently exposes a placeholder streaming response pipeline.
 
 ## Development Environment
 
-- **Platform**: Windows 11
-- **Shell**: PowerShell (NOT Git Bash)
-- Always use PowerShell syntax for shell commands
-- Path separator: backslash `\` or forward slash `/` both work in PowerShell
-- Examples:
-  - List files: `Get-ChildItem` or `ls` (alias)
-  - Remove file: `Remove-Item path` or `rm path` (alias)
-  - Copy file: `Copy-Item src dest` or `cp src dest` (alias)
-  - Environment variables: `$env:VAR_NAME` (e.g., `$env:TAURI_DEBUG`)
+- Platform: Windows
+- Shell: PowerShell (use PowerShell syntax for commands)
+- Workspace root: `D:\Project\search`
 
-## Commands
-
+Common commands:
 ```bash
 # Development
-npm run dev          # Start Vite dev server only
-npm run tauri:dev    # Start full Tauri dev mode (frontend + backend)
+npm run dev
+npm run tauri:dev
 
 # Build
-npm run build        # Build frontend only
-npm run tauri:build  # Build production app
+npm run build
+npm run tauri:build
 
-# Other
-npm run preview      # Preview built frontend
-npm run tauri        # Run Tauri CLI commands
+# Utility
+npm run preview
+npm run tauri
 ```
 
-## Key Features
+## Current Codebase Reality (Do Not Assume Missing Parts Exist)
 
-- **Simplified UI**: Minimal search bar with input and send button only
-- **Separate Settings Window**: Configuration accessed via system tray (not inline modal)
-- **Focus-based Hiding**: Main window auto-hides when losing focus
-- **Better Error Messages**: User-friendly messages for rate limits (429), auth errors (401), permission errors (403)
-- **Multi-Provider Support**: OpenAI and Google Gemini with easy switching
+### Frontend (`src/`)
+- `src/App.tsx`: main UI and user interactions.
+  - Invokes `query_stream`.
+  - Listens to `query:chunk` events for streaming text.
+  - Handles `Esc` to hide the window.
+- `src/components/ui/*`: shadcn/cmdk-based UI primitives.
+- There is no standalone `settings.html` settings window implemented.
 
-## Architecture
+### Backend (`src-tauri/src/`)
+- `src-tauri/src/main.rs`: entry point calling `app_lib::run()`.
+- `src-tauri/src/lib.rs`: Tauri setup and window/tray/shortcut behavior.
+  - Registers global shortcut `alt+space`.
+  - Tray menu: `Show`, `Settings` (currently TODO), `Quit`.
+  - Hides window on focus loss (`WindowEvent::Focused(false)`).
+- `src-tauri/src/provider/openai.rs`:
+  - Defines `ProviderConfig`.
+  - Implements `query_stream` as placeholder simulated streaming.
 
-### Tech Stack
-- **Frontend**: Svelte 5 (with runes: `$state`, `$props`, `$derived`) + Vite + Tailwind CSS v4
-- **Backend**: Tauri v2 + Rust
-- **AI Integration**: async-openai crate (supports OpenAI and Gemini via OpenAI-compatible API)
+### Exposed Tauri Commands
+- `query_stream(prompt)`
+- `set_config(config)`
+- `get_config()`
 
-### Frontend Structure (`src/`)
-- `App.svelte` - Main app component, handles window events and streaming responses (simplified UI - search box only)
-- `lib/components/SearchBox.svelte` - Input field with submit handling
-- `lib/components/ResultPanel.svelte` - Displays streaming AI responses
+Do not reference removed/non-existent commands such as `query` or `set_api_key`.
 
-### Settings Window
-- `settings.html` - Standalone settings window for provider/API key/model configuration
-- Accessible via system tray right-click menu (Settings option)
+## Window Behavior Contract
 
-### Backend Structure (`src-tauri/src/`)
-- `main.rs` - Entry point, calls `app_lib::run()`
-- `lib.rs` - Tauri app setup: window management, system tray, global shortcut (Alt+Space), Tauri commands
-- `provider/mod.rs` - Re-exports OpenAIClient and ProviderConfig
-- `provider/openai.rs` - OpenAIClient implementation with streaming support, handles both OpenAI and Gemini providers
+- App window starts hidden and is toggled by `Alt+Space`.
+- Pressing `Esc` hides the window.
+- Losing focus hides the window.
+- Tray left click or `Show` menu item shows and focuses the window.
 
-### Tauri Commands (Rust -> Frontend)
-- `query(prompt)` - Non-streaming query (returns full response)
-- `query_stream(prompt)` - Streaming query, emits `query:chunk` events to frontend
-- `set_config(config)` - Set full provider configuration
-- `get_config()` - Get current configuration
-- `set_api_key(api_key, model?)` - Legacy command for backward compatibility
+## Documentation Policy (docs/)
 
-### Frontend-Backend Communication
-- Frontend uses `@tauri-apps/api/core` invoke for commands
-- Streaming: Backend emits `query:chunk` events, frontend listens via `@tauri-apps/api/event`
+Documentation is standardized under `docs/`:
+- `docs/00-governance/` - standards and documentation rules
+- `docs/01-architecture/` - architecture notes
+- `docs/02-runbooks/` - operational checklists/runbooks
+- `docs/03-changes/` - dated change archives
 
-### Window Behavior
-- Main window starts hidden, toggles via Alt+Space global shortcut
-- Main window auto-hides when it loses focus (clicking outside)
-- Close button hides window instead of closing (close-to-tray)
-- System tray icon with Show/Settings/Quit menu
-- Settings window accessible from system tray
+Key files:
+- `docs/README.md`
+- `docs/00-governance/documentation-standards.md`
+- `docs/03-changes/CHANGE-INDEX.md`
 
-### Configuration
-- `ProviderConfig` struct holds: `api_key`, `model`, `provider_type` (openai/gemini), optional `base_url`
-- Configuration is stored in-memory (not persisted between sessions)
-- Default model: `gpt-4o-mini` for OpenAI, `gemini-2.0-flash` for Gemini
+### Mandatory Change Archival
 
-## Key Dependencies
+For every meaningful code change (feature, fix, behavior change), add an archive folder:
+- Path format: `docs/03-changes/YYYY/YYYY-MM-DD-<short-topic>/`
+- Required files:
+  - `CHANGELOG.md`
+  - `IMPLEMENTATION.md`
+  - `VALIDATION.md`
+- Update `docs/03-changes/CHANGE-INDEX.md` in the same change.
 
-### Rust (Cargo.toml)
-- `tauri` v2.10.0 with tray-icon feature
-- `tauri-plugin-global-shortcut` v2 - Global hotkey support (Alt+Space)
-- `tauri-plugin-global-shortcut` v2
-- `async-openai` v0.28 - OpenAI API client with streaming
-- `tokio` with full features for async runtime
+## Accuracy Rules for Agents
 
-### JavaScript (package.json)
-- `svelte` v5.53.2 - Frontend framework
-- `@tauri-apps/api` v2.10.1 - Tauri frontend API
-- `tailwindcss` v4.2.0 with `@tailwindcss/vite` plugin
-
-## OpenSpec
-
-This project uses OpenSpec for change management. Specs are in `openspec/changes/ai-quick-search/specs/` covering features like global-hotkey, multi-model-query, model-provider, result-comparison, system-tray, autostart, and query-history.
-
-## Documentation
-
-### Documentation Structure
-
-All project documentation is organized in the `docs/` directory with enterprise-level structure:
-
-- `docs/architecture/` - System design and technical architecture
-- `docs/api/` - API references and command documentation
-- `docs/guides/` - User and developer guides
-- `docs/development/` - Development workflow and code standards
-- `docs/operations/` - Installation, deployment, and maintenance
-- `docs/ai-generated/` - AI-assistant generated documentation
-
-### AI-Generated Documentation Policy
-
-**AI-generated documentation MUST be archived in the `docs/ai-generated/` directory according to type:**
-
-- **`docs/ai-generated/features/`** - New features, enhancements, implementations
-- **`docs/ai-generated/fixes/`** - Bug fixes, patches, technical resolutions
-- **`docs/ai-generated/reviews/`** - Code reviews, analysis summaries
-- **`docs/ai-generated/investigations/`** - Research, debugging, exploration results
-
-**Documentation Template:**
-```markdown
-# [Title]
-
-**Generated**: {Date}
-**AI Assistant**: Claude Code
-**Related Files**: [file paths]
-
-## Overview
-[Brief description]
-
-## Context
-[Background information]
-
-## Implementation/Analysis
-[Technical content]
-
-## Results/Outcomes
-[What was achieved/discovered]
-
-## Related Files
-- [path/to/file.ext](../../path/to/file.ext) - Description
-```
-
-**Naming Conventions:**
-- Features: `{feature-name}.md` (e.g., `global-hotkey.md`)
-- Fixes: `{issue-id}-{description}.md` or `{description}-fix.md`
-- Reviews: `review-{date}-{component}.md`
-- Investigations: `investigation-{topic}.md`
-
-**Always update the corresponding INDEX.md file when adding new documentation.**
-
-See `docs/ai-generated/README.md` for detailed guidelines and templates.
+- Verify repository state before documenting architecture/features.
+- Do not document planned functionality as implemented behavior.
+- If behavior is TODO/placeholder, mark it explicitly.

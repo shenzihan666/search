@@ -1,32 +1,21 @@
 [package]
 name = "ai-quick-search"
 version = "0.1.0"
-description = "A lightweight AI search bar with multi-model support"
+description = "AI Quick Search - A lightweight desktop AI search bar"
 authors = ["you"]
-license = "MIT"
-repository = ""
 edition = "2021"
-rust-version = "1.77.2"
 
 [lib]
 name = "app_lib"
 crate-type = ["staticlib", "cdylib", "rlib"]
 
 [build-dependencies]
-tauri-build = { version = "2.5.4", features = [] }
+tauri-build = { version = "2", features = [] }
 
 [dependencies]
-serde_json = "1.0"
-serde = { version = "1.0", features = ["derive"] }
-log = "0.4"
-tauri = { version = "2.10.0", features = ["tray-icon"] }
-tauri-plugin-log = "2"
+tauri = { version = "2", features = ["tray-icon"] }
 tauri-plugin-global-shortcut = "2"
-tauri-plugin-sql = { version = "2", features = ["sqlite"] }
-async-openai = "0.28"
+serde = { version = "1", features = ["derive"] }
+serde_json = "1"
 tokio = { version = "1", features = ["full"] }
-async-trait = "0.1"
-futures = "0.3"
-
-[target."cfg(not(any(target_os = \"android\", target_os = \"ios\")))".dependencies]
-tauri-plugin-global-shortcut = "2"
+async-openai = "0.28"

@@ -3,16 +3,14 @@ node_modules/
 
 # Build output
 dist/
+dist-ssr/
 
 # Tauri
 src-tauri/target/
-src-tauri/gen/schemas
 
 # IDE
-.idea/
 .vscode/
-*.swp
-*.swo
+.idea/
 
 # OS
 .DS_Store
@@ -25,3 +23,4 @@ npm-debug.log*
 # Environment
 .env
 .env.local
+.env.*.local

@@ -4,7 +4,12 @@
       "mcp__context7__resolve-library-id",
       "Bash(openspec status:*)",
       "Bash(openspec instructions:*)",
-      "mcp__context7__query-docs"
+      "mcp__context7__query-docs",
+      "mcp__codex-cli__codex",
+      "Bash(python:*)",
+      "Bash(git add:*)",
+      "Bash(cd:*)",
+      "WebSearch"
     ]
   }
 }
