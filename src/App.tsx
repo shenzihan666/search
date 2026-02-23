@@ -1,7 +1,6 @@
 import { invoke } from "@tauri-apps/api/core";
 import { listen } from "@tauri-apps/api/event";
-import { getCurrentWindow } from "@tauri-apps/api/window";
-import { useEffect, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import {
   Command,
   CommandInput,
@@ -21,11 +20,36 @@ interface SearchResult {
 }
 
 function App() {
-  const appWindow = getCurrentWindow();
   const [query, setQuery] = useState("");
   const [response, setResponse] = useState("");
   const [isLoading, setIsLoading] = useState(false);
   const [appResults, setAppResults] = useState<SearchResult[]>([]);
+  const [suggestions, setSuggestions] = useState<SearchResult[]>([]);
+  const [appIcons, setAppIcons] = useState<Record<string, string | null>>({});
+  const [selectedItemValue, setSelectedItemValue] = useState("ask-ai");
+  const inputRef = useRef<HTMLInputElement | null>(null);
+  const isQueryMode = query.trim().length > 0;
+  const visibleResults = useMemo(
+    () => (isQueryMode ? appResults : suggestions),
+    [appResults, isQueryMode, suggestions],
+  );
+
+  const focusSearchInput = useCallback(() => {
+    // Delay one frame so focus happens after window show/activation settles.
+    setTimeout(() => {
+      inputRef.current?.focus();
+      inputRef.current?.select();
+    }, 0);
+  }, []);
+
+  const hideLauncher = useCallback(async () => {
+    try {
+      const { getCurrentWindow } = await import("@tauri-apps/api/window");
+      await getCurrentWindow().hide();
+    } catch (e) {
+      console.error("Failed to hide launcher window:", e);
+    }
+  }, []);
 
   useEffect(() => {
     // Listen for streaming chunks
@@ -39,20 +63,42 @@ function App() {
   }, []);
 
   useEffect(() => {
+    const unlisten = listen("launcher:opened", () => {
+      focusSearchInput();
+    });
+
+    return () => {
+      unlisten.then((fn) => fn());
+    };
+  }, [focusSearchInput]);
+
+  useEffect(() => {
     const onKeyDown = (event: KeyboardEvent) => {
       if (event.key !== "Escape") return;
       event.preventDefault();
-      void appWindow.hide();
+      void hideLauncher();
     };
 
     window.addEventListener("keydown", onKeyDown);
     return () => window.removeEventListener("keydown", onKeyDown);
-  }, [appWindow]);
+  }, [hideLauncher]);
 
-  // Debounced app search
+  const loadSuggestions = useCallback(async () => {
+    try {
+      const results = await invoke<SearchResult[]>("get_suggestions", {
+        limit: 8,
+      });
+      setSuggestions(results);
+    } catch (e) {
+      console.error("Failed to load suggestions:", e);
+      setSuggestions([]);
+    }
+  }, []);
+
+  // Debounced app search + suggestions mode
   useEffect(() => {
     const timer = setTimeout(async () => {
-      if (query.trim().length > 0) {
+      if (isQueryMode) {
         try {
           const results = await invoke<SearchResult[]>("search_apps", {
             query,
@@ -64,11 +110,72 @@ function App() {
         }
       } else {
         setAppResults([]);
+        void loadSuggestions();
       }
     }, 150);
 
     return () => clearTimeout(timer);
-  }, [query]);
+  }, [isQueryMode, loadSuggestions, query]);
+
+  useEffect(() => {
+    if (visibleResults.length === 0) {
+      return;
+    }
+
+    const pendingPaths = visibleResults
+      .map((result) => result.app.path)
+      .filter((path) => appIcons[path] === undefined);
+
+    if (pendingPaths.length === 0) {
+      return;
+    }
+
+    let cancelled = false;
+
+    void Promise.all(
+      pendingPaths.map(async (path) => {
+        try {
+          const icon = await invoke<string | null>("get_app_icon", { path });
+          return [path, icon] as const;
+        } catch (e) {
+          console.error("App icon extraction failed:", e);
+          return [path, null] as const;
+        }
+      }),
+    ).then((entries) => {
+      if (cancelled) {
+        return;
+      }
+
+      setAppIcons((prev) => {
+        const next = { ...prev };
+        for (const [path, icon] of entries) {
+          next[path] = icon;
+        }
+        return next;
+      });
+    });
+
+    return () => {
+      cancelled = true;
+    };
+  }, [appIcons, visibleResults]);
+
+  useEffect(() => {
+    if (visibleResults.length === 0) {
+      if (selectedItemValue !== "ask-ai") {
+        setSelectedItemValue("ask-ai");
+      }
+      return;
+    }
+
+    const selectedExists = visibleResults.some(
+      (result) => result.app.path === selectedItemValue,
+    );
+    if (!selectedExists) {
+      setSelectedItemValue(visibleResults[0].app.path);
+    }
+  }, [selectedItemValue, visibleResults]);
 
   const handleSubmit = async (value: string) => {
     if (!value.trim() || isLoading) return;
@@ -89,7 +196,10 @@ function App() {
   const handleAppSelect = async (app: AppInfo) => {
     try {
       await invoke("launch_app", { path: app.path });
-      void appWindow.hide();
+      if (!isQueryMode) {
+        void loadSuggestions();
+      }
+      void hideLauncher();
     } catch (e) {
       console.error("Failed to launch app:", e);
     }
@@ -102,23 +212,30 @@ function App() {
           <Command
             className="vercel-launcher-container bg-bg-main border border-border-gray rounded-xl overflow-hidden"
             shouldFilter={false}
+            value={selectedItemValue}
+            onValueChange={setSelectedItemValue}
           >
             <CommandInput
               placeholder="Search apps or ask AI (Tab to chat)"
+              ref={inputRef}
               value={query}
               onValueChange={setQuery}
               onKeyDown={(e) => {
                 if (e.key === "Escape") {
                   e.preventDefault();
-                  void appWindow.hide();
+                  void hideLauncher();
                   return;
                 }
                 if (e.key === "Enter") {
-                  // If there are app results, launch the first one
-                  if (appResults.length > 0) {
-                    void handleAppSelect(appResults[0].app);
+                  e.preventDefault();
+                  if (visibleResults.length > 0) {
+                    const selected =
+                      visibleResults.find(
+                        (result) => result.app.path === selectedItemValue,
+                      ) ?? visibleResults[0];
+                    void handleAppSelect(selected.app);
                   } else {
-                    handleSubmit(query);
+                    void handleSubmit(query);
                   }
                 }
               }}
@@ -129,22 +246,31 @@ function App() {
               <CommandList className="max-h-[400px] overflow-y-auto no-scrollbar">
                 <div className="px-5 py-2.5 bg-[#FAFAFA]">
                   <span className="text-[11px] font-semibold text-text-secondary uppercase tracking-[0.05em]">
-                    {appResults.length > 0 ? "Applications" : "Suggestions"}
+                    {isQueryMode ? "Applications" : "Suggestions"}
                   </span>
                 </div>
 
                 <div className="py-1">
                   {/* App Results */}
-                  {appResults.map((result) => (
+                  {visibleResults.map((result) => (
                     <CommandItem
                       key={result.app.path}
+                      value={result.app.path}
                       className="w-full flex items-center px-5 py-3.5 hover:bg-[#F9F9F9] transition-all group text-left cursor-pointer data-[selected=true]:bg-[#F9F9F9]"
                       onSelect={() => handleAppSelect(result.app)}
                     >
                       <div className="w-9 h-9 rounded border border-border-gray flex items-center justify-center bg-white">
-                        <span className="material-symbols-outlined text-[20px] text-text-main">
-                          apps
-                        </span>
+                        {appIcons[result.app.path] ? (
+                          <img
+                            src={appIcons[result.app.path] ?? ""}
+                            alt={`${result.app.name} icon`}
+                            className="w-5 h-5 object-contain"
+                          />
+                        ) : (
+                          <span className="material-symbols-outlined text-[20px] text-text-main">
+                            apps
+                          </span>
+                        )}
                       </div>
                       <div className="ml-4 flex-1">
                         <p className="text-[15px] font-medium tracking-tight">
@@ -166,10 +292,11 @@ function App() {
                   ))}
 
                   {/* Ask AI - shown when no app results or as fallback */}
-                  {appResults.length === 0 && (
+                  {visibleResults.length === 0 && (
                     <CommandItem
+                      value="ask-ai"
                       className="w-full flex items-center px-5 py-3.5 hover:bg-[#F9F9F9] transition-all group text-left cursor-pointer data-[selected=true]:bg-[#F9F9F9]"
-                      onSelect={() => handleSubmit("Ask AI Assistant")}
+                      onSelect={() => handleSubmit(query)}
                     >
                       <div className="w-9 h-9 rounded bg-black flex items-center justify-center text-white shadow-sm">
                         <span className="material-symbols-outlined text-[20px]">

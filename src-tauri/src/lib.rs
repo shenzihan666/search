@@ -1,13 +1,15 @@
 use tauri::{
     menu::{Menu, MenuItem},
     tray::{MouseButton, MouseButtonState, TrayIconBuilder, TrayIconEvent},
-    Manager, WindowEvent,
+    Emitter, Manager, WindowEvent,
 };
 use tauri_plugin_global_shortcut::{GlobalShortcutExt, ShortcutState};
 
 mod apps;
 mod provider;
-use apps::{initialize_cache, launch_app, refresh_app_cache, search_apps};
+use apps::{
+    get_app_icon, get_suggestions, initialize_cache, launch_app, refresh_app_cache, search_apps,
+};
 use provider::{query_stream, ProviderConfig};
 
 #[tauri::command]
@@ -33,7 +35,8 @@ pub fn run() {
             if let Err(err) =
                 app.global_shortcut()
                     .on_shortcut(TOGGLE_SHORTCUT, move |_app, _shortcut, event| {
-                        if event.state != ShortcutState::Pressed {
+                        // Trigger on key release to avoid Windows Alt+Space system menu conflicts.
+                        if event.state != ShortcutState::Released {
                             return;
                         }
 
@@ -55,6 +58,7 @@ pub fn run() {
                                 }
                                 let _ = window.show();
                                 let _ = window.set_focus();
+                                let _ = window.emit("launcher:opened", ());
                             }
                         }
                     })
@@ -95,6 +99,7 @@ pub fn run() {
                             }
                             let _ = window.show();
                             let _ = window.set_focus();
+                            let _ = window.emit("launcher:opened", ());
                         }
                     }
                     "settings" => {
@@ -127,6 +132,7 @@ pub fn run() {
                             }
                             let _ = window.show();
                             let _ = window.set_focus();
+                            let _ = window.emit("launcher:opened", ());
                         }
                     }
                 })
@@ -170,8 +176,10 @@ pub fn run() {
             set_config,
             get_config,
             search_apps,
+            get_suggestions,
             launch_app,
-            refresh_app_cache
+            refresh_app_cache,
+            get_app_icon
         ])
         .run(tauri::generate_context!())
         .expect("error while running tauri application");

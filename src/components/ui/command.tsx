@@ -1,7 +1,7 @@
 "use client";
 
 import { Command as CommandPrimitive } from "cmdk";
-import type * as React from "react";
+import * as React from "react";
 import {
   Dialog,
   DialogContent,
@@ -58,10 +58,10 @@ function CommandDialog({
   );
 }
 
-function CommandInput({
-  className,
-  ...props
-}: React.ComponentProps<typeof CommandPrimitive.Input>) {
+const CommandInput = React.forwardRef<
+  React.ElementRef<typeof CommandPrimitive.Input>,
+  React.ComponentProps<typeof CommandPrimitive.Input>
+>(({ className, ...props }, ref) => {
   return (
     <div
       data-slot="command-input-wrapper"
@@ -71,6 +71,7 @@ function CommandInput({
         search
       </span>
       <CommandPrimitive.Input
+        ref={ref}
         data-slot="command-input"
         className={cn(
           "flex-1 bg-transparent border-none focus:ring-0 text-[18px] text-text-main placeholder-[#A1A1A1] p-0 font-normal outline-none disabled:cursor-not-allowed disabled:opacity-50",
@@ -95,7 +96,8 @@ function CommandInput({
       </div>
     </div>
   );
-}
+});
+CommandInput.displayName = CommandPrimitive.Input.displayName;
 
 function CommandList({
   className,

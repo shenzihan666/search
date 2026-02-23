@@ -9,7 +9,8 @@
       "Bash(python:*)",
       "Bash(git add:*)",
       "Bash(cd:*)",
-      "WebSearch"
+      "WebSearch",
+      "Bash(cd /d/Project/search-app-search/src-tauri && cargo check 2>&1)"
     ]
   }
 }
