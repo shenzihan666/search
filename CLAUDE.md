@@ -43,11 +43,14 @@ npm run tauri
   - Handles `Esc` to hide the window.
   - Enter launches first app result or submits AI query.
   - Settings button opens settings window via Tauri Window API.
-- `src/pages/Settings.tsx`: Settings page with LLM provider configuration.
-  - Loads/saves provider config via `get_config`/`set_config` commands.
+- `src/pages/Settings.tsx`: Settings page with multi-provider configuration.
+  - Uses `useProviders` hook for provider state management.
   - Custom titlebar with minimize, maximize, close controls.
   - Sidebar navigation structure (General, LLM Models, Hotkeys, Appearance, About).
 - `src/components/ui/*`: shadcn/cmdk-based UI primitives.
+- `src/components/ProviderCard.tsx`: Provider card component for CRUD UI.
+- `src/hooks/useProviders.ts`: React hook for provider state and operations.
+- `src/types/provider.ts`: TypeScript types for providers (Provider, ProviderView, etc.).
 
 ### Backend (`src-tauri/src/`)
 - `src-tauri/src/main.rs`: entry point calling `app_lib::run()`.
@@ -61,12 +64,12 @@ npm run tauri
   - `connection.rs`: Thread-local SQLite connection management.
   - `error.rs`: Database error types (Connection, Query, Io, Secret, Json).
   - `schema.rs`: Data structures (AppRecord, AppUsageRecord, SettingEntry).
-  - `migrations/`: Versioned schema migrations (v1_initial, v2_normalized_path).
+  - `migrations/`: Versioned schema migrations (v1_initial, v2_normalized_path, v3_providers, v4_provider_api_key_sqlite).
   - `repositories/apps.rs`: Apps CRUD, usage tracking, icon storage, JSON migration.
   - `repositories/settings.rs`: Key-value settings with system keyring for API keys.
-- `src-tauri/src/provider/openai.rs`:
-  - Defines `ProviderConfig`.
-  - Implements `query_stream` as placeholder simulated streaming.
+  - `repositories/providers.rs`: Multi-provider CRUD with API key management.
+- `src-tauri/src/provider/mod.rs`: Provider types, request/response structures.
+- `src-tauri/src/provider/openai.rs`: Connection testing and query integration.
 - `src-tauri/src/apps/`: Windows application search module.
   - `mod.rs`: Tauri commands (`search_apps`, `launch_app`, `refresh_app_cache`).
   - `scanner.rs`: Registry-based app discovery (Start Menu scanning disabled).
@@ -74,8 +77,16 @@ npm run tauri
 
 ### Exposed Tauri Commands
 - `query_stream(prompt)` - AI query with streaming response
-- `set_config(config)` - Set provider configuration (persists to database + keyring)
-- `get_config()` - Get current provider configuration (loads from database + keyring)
+- `set_config(config)` - Set provider configuration (legacy, persists to database + keyring)
+- `get_config()` - Get current provider configuration (legacy, loads from database + keyring)
+- `list_providers()` - List all providers with API key status
+- `create_provider(req)` - Create a new provider
+- `update_provider(id, req)` - Update provider settings
+- `delete_provider(id)` - Delete a provider
+- `set_active_provider(id)` - Set the active provider
+- `get_provider_api_key(id)` - Get API key for a provider
+- `set_provider_api_key(id, api_key)` - Set API key for a provider
+- `test_provider_connection(id)` - Test connection to a provider
 - `search_apps(query)` - Fuzzy search installed applications
 - `launch_app(path)` - Launch application by executable path
 - `refresh_app_cache()` - Force refresh app cache
@@ -88,6 +99,8 @@ npm run tauri
 - `dirs` - Cross-platform directory paths
 - `rusqlite` - SQLite database for persistence
 - `keyring` - System keyring for secure API key storage
+- `uuid` - UUID generation for provider IDs
+- `reqwest` - HTTP client for provider connection testing
 
 ### Key Dependencies (Frontend)
 - `react-router-dom` - Client-side routing

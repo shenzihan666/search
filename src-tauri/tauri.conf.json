@@ -34,6 +34,18 @@
         "decorations": false,
         "transparent": true,
         "shadow": true
+      },
+      {
+        "title": "Chat",
+        "label": "chat",
+        "url": "/chat",
+        "width": 1200,
+        "height": 800,
+        "resizable": true,
+        "visible": false,
+        "decorations": false,
+        "transparent": true,
+        "shadow": true
       }
     ],
     "security": {

@@ -17,4 +17,4 @@ pub fn initialize(app: &AppHandle) -> DbResult<()> {
     connection::initialize(db_path)
 }
 
-pub use repositories::{AppsRepository, SettingsRepository};
+pub use repositories::{AppsRepository, ProvidersRepository, SettingsRepository};

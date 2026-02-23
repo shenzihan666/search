@@ -20,6 +20,9 @@ pub enum DbError {
 
     #[error("Secret storage error: {0}")]
     Secret(String),
+
+    #[error("Query error: {0}")]
+    Query(String),
 }
 
 pub type DbResult<T> = Result<T, DbError>;

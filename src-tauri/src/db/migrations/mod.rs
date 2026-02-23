@@ -1,13 +1,17 @@
 mod v1_initial;
 mod v2_normalized_path;
+mod v3_providers;
+mod v4_provider_api_key_sqlite;
 
 use crate::db::error::{DbError, DbResult};
 use std::time::{SystemTime, UNIX_EPOCH};
 use v1_initial as V1;
 use v2_normalized_path as V2;
+use v3_providers as V3;
+use v4_provider_api_key_sqlite as V4;
 
 #[allow(dead_code)]
-pub const CURRENT_VERSION: u32 = 2;
+pub const CURRENT_VERSION: u32 = 4;
 
 fn now_unix_ms() -> u64 {
     SystemTime::now()
@@ -66,6 +70,18 @@ pub fn run_migrations(conn: &rusqlite::Connection) -> DbResult<()> {
         set_version(conn, V2::VERSION)?;
     }
 
+    // V3: multi-provider support with providers table.
+    if current < V3::VERSION {
+        V3::apply(conn)?;
+        set_version(conn, V3::VERSION)?;
+    }
+
+    // V4: move provider API keys into SQLite (providers.api_key).
+    if current < V4::VERSION {
+        V4::apply(conn)?;
+        set_version(conn, V4::VERSION)?;
+    }
+
     Ok(())
 }
 
@@ -75,6 +91,6 @@ mod tests {
 
     #[test]
     fn test_version_is_correct() {
-        assert_eq!(CURRENT_VERSION, 2);
+        assert_eq!(CURRENT_VERSION, 4);
     }
 }

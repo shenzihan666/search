@@ -11,11 +11,18 @@ mod provider;
 use apps::{
     get_app_icon, get_suggestions, initialize_cache, launch_app, refresh_app_cache, search_apps,
 };
-use db::SettingsRepository;
-use provider::{query_stream, ProviderConfig};
+use db::{ProvidersRepository, SettingsRepository};
+use provider::{
+    query_stream, test_provider_connection as run_provider_connection_test, ConnectionTestResult,
+    CreateProviderRequest, Provider, ProviderView, UpdateProviderRequest,
+};
 
+// Legacy commands (kept for backwards compatibility)
 #[tauri::command]
-async fn set_config(config: ProviderConfig, _app: tauri::AppHandle) -> Result<(), String> {
+async fn set_config(
+    config: provider::ProviderConfig,
+    _app: tauri::AppHandle,
+) -> Result<(), String> {
     tauri::async_runtime::spawn_blocking(move || SettingsRepository::save_provider_config(&config))
         .await
         .map_err(|e| e.to_string())?
@@ -23,11 +30,87 @@ async fn set_config(config: ProviderConfig, _app: tauri::AppHandle) -> Result<()
 }
 
 #[tauri::command]
-async fn get_config(_app: tauri::AppHandle) -> Result<ProviderConfig, String> {
+async fn get_config(_app: tauri::AppHandle) -> Result<provider::ProviderConfig, String> {
     tauri::async_runtime::spawn_blocking(SettingsRepository::load_provider_config)
         .await
         .map_err(|e| e.to_string())?
         .map_err(|e| e.to_string())
+}
+
+// Provider CRUD commands
+#[tauri::command]
+async fn list_providers(_app: tauri::AppHandle) -> Result<Vec<ProviderView>, String> {
+    tauri::async_runtime::spawn_blocking(ProvidersRepository::list)
+        .await
+        .map_err(|e| e.to_string())?
+        .map_err(|e| e.to_string())
+}
+
+#[tauri::command]
+async fn create_provider(
+    req: CreateProviderRequest,
+    _app: tauri::AppHandle,
+) -> Result<Provider, String> {
+    tauri::async_runtime::spawn_blocking(move || ProvidersRepository::create(req))
+        .await
+        .map_err(|e| e.to_string())?
+        .map_err(|e| e.to_string())
+}
+
+#[tauri::command]
+async fn update_provider(
+    id: String,
+    req: UpdateProviderRequest,
+    _app: tauri::AppHandle,
+) -> Result<Provider, String> {
+    tauri::async_runtime::spawn_blocking(move || ProvidersRepository::update(&id, req))
+        .await
+        .map_err(|e| e.to_string())?
+        .map_err(|e| e.to_string())
+}
+
+#[tauri::command]
+async fn delete_provider(id: String, _app: tauri::AppHandle) -> Result<(), String> {
+    tauri::async_runtime::spawn_blocking(move || ProvidersRepository::delete(&id))
+        .await
+        .map_err(|e| e.to_string())?
+        .map_err(|e| e.to_string())
+}
+
+#[tauri::command]
+async fn set_active_provider(id: String, _app: tauri::AppHandle) -> Result<(), String> {
+    tauri::async_runtime::spawn_blocking(move || ProvidersRepository::set_active(&id))
+        .await
+        .map_err(|e| e.to_string())?
+        .map_err(|e| e.to_string())
+}
+
+#[tauri::command]
+async fn get_provider_api_key(id: String, _app: tauri::AppHandle) -> Result<String, String> {
+    tauri::async_runtime::spawn_blocking(move || ProvidersRepository::get_api_key(&id))
+        .await
+        .map_err(|e| e.to_string())?
+        .map_err(|e| e.to_string())
+}
+
+#[tauri::command]
+async fn set_provider_api_key(
+    id: String,
+    api_key: String,
+    _app: tauri::AppHandle,
+) -> Result<(), String> {
+    tauri::async_runtime::spawn_blocking(move || ProvidersRepository::set_api_key(&id, &api_key))
+        .await
+        .map_err(|e| e.to_string())?
+        .map_err(|e| e.to_string())
+}
+
+#[tauri::command]
+async fn test_provider_connection(
+    id: String,
+    _app: tauri::AppHandle,
+) -> Result<ConnectionTestResult, String> {
+    run_provider_connection_test(id).await
 }
 
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
@@ -189,9 +272,20 @@ pub fn run() {
             Ok(())
         })
         .invoke_handler(tauri::generate_handler![
+            // Legacy single-provider commands
             query_stream,
             set_config,
             get_config,
+            // Multi-provider CRUD commands
+            list_providers,
+            create_provider,
+            update_provider,
+            delete_provider,
+            set_active_provider,
+            get_provider_api_key,
+            set_provider_api_key,
+            test_provider_connection,
+            // App commands
             search_apps,
             get_suggestions,
             launch_app,

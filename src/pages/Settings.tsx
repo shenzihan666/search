@@ -1,6 +1,6 @@
-import { invoke } from "@tauri-apps/api/core";
 import { getCurrentWindow } from "@tauri-apps/api/window";
 import { useEffect, useState } from "react";
+import { ProviderCard } from "@/components/ProviderCard";
 import {
   Dialog,
   DialogContent,
@@ -10,80 +10,518 @@ import {
   DialogTitle,
   DialogTrigger,
 } from "@/components/ui/dialog";
+import { useProviders } from "@/hooks/useProviders";
+import type { ProviderType } from "@/types/provider";
+import { PROVIDER_TYPE_INFO } from "@/types/provider";
 
 export default function Settings() {
+  const [activeTab, setActiveTab] = useState("llm-models");
   const [isNewProviderOpen, setIsNewProviderOpen] = useState(false);
-  const [providerConfig, setProviderConfig] = useState({
-    api_key: "",
-    model: "gpt-4o-mini",
-    provider_type: "openai",
-    base_url: "",
-  });
-  const [isSaving, setIsSaving] = useState(false);
-  const [saveMessage, setSaveMessage] = useState<string | null>(null);
+  const [newProviderType, setNewProviderType] =
+    useState<ProviderType>("openai");
+  const [newProviderName, setNewProviderName] = useState("");
+  const [newProviderBaseUrl, setNewProviderBaseUrl] = useState("");
+  const [newProviderApiKey, setNewProviderApiKey] = useState("");
+  const [newProviderShowApiKey, setNewProviderShowApiKey] = useState(false);
+  const [newProviderModel, setNewProviderModel] = useState("");
+  const [isCreatingProvider, setIsCreatingProvider] = useState(false);
+
+  const {
+    providers,
+    isLoading: isLoadingProviders,
+    createProvider,
+    updateProvider,
+    deleteProvider,
+    setActiveProvider,
+    setApiKey,
+    getApiKey,
+    testConnection,
+  } = useProviders();
 
   useEffect(() => {
     const appWindow = getCurrentWindow();
     appWindow.show();
   }, []);
 
-  useEffect(() => {
-    let cancelled = false;
-    const loadConfig = async () => {
-      try {
-        const config = await invoke<{
-          api_key: string | null;
-          model: string;
-          provider_type: string;
-          base_url: string | null;
-        }>("get_config");
-        if (cancelled) {
-          return;
-        }
-        setProviderConfig({
-          api_key: config.api_key ?? "",
-          model: config.model,
-          provider_type: config.provider_type,
-          base_url: config.base_url ?? "",
-        });
-      } catch (error) {
-        console.error("Failed to load provider config:", error);
-      }
-    };
-
-    void loadConfig();
-    return () => {
-      cancelled = true;
-    };
-  }, []);
-
-  const saveProviderConfig = async () => {
-    setIsSaving(true);
-    setSaveMessage(null);
+  const handleCreateProvider = async () => {
+    setIsCreatingProvider(true);
     try {
-      await invoke("set_config", {
-        config: {
-          api_key: providerConfig.api_key.trim()
-            ? providerConfig.api_key.trim()
-            : null,
-          model: providerConfig.model.trim() || "gpt-4o-mini",
-          provider_type: providerConfig.provider_type.trim() || "openai",
-          base_url: providerConfig.base_url.trim()
-            ? providerConfig.base_url.trim()
-            : null,
-        },
+      await createProvider({
+        name:
+          newProviderName.trim() || PROVIDER_TYPE_INFO[newProviderType].label,
+        provider_type: newProviderType,
+        base_url: newProviderBaseUrl.trim() || undefined,
+        model: newProviderModel.trim() || undefined,
+        api_key: newProviderApiKey.trim() || undefined,
       });
-      setSaveMessage("Saved");
+      // Reset form
+      setIsNewProviderOpen(false);
+      setNewProviderType("openai");
+      setNewProviderName("");
+      setNewProviderBaseUrl("");
+      setNewProviderApiKey("");
+      setNewProviderShowApiKey(false);
+      setNewProviderModel("");
     } catch (error) {
-      console.error("Failed to save provider config:", error);
-      setSaveMessage("Save failed");
+      console.error("Failed to create provider:", error);
     } finally {
-      setIsSaving(false);
+      setIsCreatingProvider(false);
+    }
+  };
+
+  const handleNewProviderTypeChange = (type: ProviderType) => {
+    setNewProviderType(type);
+    setNewProviderName(PROVIDER_TYPE_INFO[type].label);
+    setNewProviderBaseUrl(PROVIDER_TYPE_INFO[type].defaultBaseUrl ?? "");
+    setNewProviderModel(PROVIDER_TYPE_INFO[type].defaultModel);
+  };
+
+  const renderTabContent = () => {
+    switch (activeTab) {
+      case "general":
+        return (
+          <div className="max-w-[800px] mx-auto py-12 px-10">
+            <header className="mb-12">
+              <div className="flex items-center gap-2 text-text-secondary text-xs mb-3">
+                <span>Settings</span>
+                <span className="material-symbols-outlined text-[14px]">
+                  chevron_right
+                </span>
+                <span className="text-black font-medium">General</span>
+              </div>
+              <h1 className="text-3xl font-bold tracking-tight mb-3">
+                General
+              </h1>
+              <p className="text-sm text-text-secondary max-w-xl leading-relaxed">
+                Configure basic application behavior and startup settings.
+              </p>
+            </header>
+            <div className="space-y-8">
+              <div className="border border-border-gray rounded-xl overflow-hidden bg-white shadow-sm">
+                <div className="p-6 space-y-6">
+                  <div className="flex items-center justify-between">
+                    <div>
+                      <h3 className="text-sm font-bold">Launch on Startup</h3>
+                      <p className="text-xs text-text-secondary mt-1">
+                        Automatically start the application when you log in.
+                      </p>
+                    </div>
+                    <label className="relative inline-flex items-center cursor-pointer">
+                      <input
+                        type="checkbox"
+                        className="sr-only peer"
+                        defaultChecked
+                      />
+                      <div className="w-9 h-5 bg-gray-200 peer-focus:outline-none rounded-full peer peer-checked:after:translate-x-full peer-checked:after:border-white after:content-[''] after:absolute after:top-[2px] after:left-[2px] after:bg-white after:border-gray-300 after:border after:rounded-full after:h-4 after:w-4 after:transition-all peer-checked:bg-black"></div>
+                    </label>
+                  </div>
+                  <div className="h-px bg-border-gray w-full"></div>
+                  <div className="flex items-center justify-between">
+                    <div>
+                      <h3 className="text-sm font-bold">Hide on Blur</h3>
+                      <p className="text-xs text-text-secondary mt-1">
+                        Hide the search window when it loses focus.
+                      </p>
+                    </div>
+                    <label className="relative inline-flex items-center cursor-pointer">
+                      <input
+                        type="checkbox"
+                        className="sr-only peer"
+                        defaultChecked
+                      />
+                      <div className="w-9 h-5 bg-gray-200 peer-focus:outline-none rounded-full peer peer-checked:after:translate-x-full peer-checked:after:border-white after:content-[''] after:absolute after:top-[2px] after:left-[2px] after:bg-white after:border-gray-300 after:border after:rounded-full after:h-4 after:w-4 after:transition-all peer-checked:bg-black"></div>
+                    </label>
+                  </div>
+                </div>
+              </div>
+            </div>
+          </div>
+        );
+      case "hotkeys":
+        return (
+          <div className="max-w-[800px] mx-auto py-12 px-10">
+            <header className="mb-12">
+              <div className="flex items-center gap-2 text-text-secondary text-xs mb-3">
+                <span>Settings</span>
+                <span className="material-symbols-outlined text-[14px]">
+                  chevron_right
+                </span>
+                <span className="text-black font-medium">Hotkeys</span>
+              </div>
+              <h1 className="text-3xl font-bold tracking-tight mb-3">
+                Hotkeys
+              </h1>
+              <p className="text-sm text-text-secondary max-w-xl leading-relaxed">
+                Customize keyboard shortcuts to improve your workflow.
+              </p>
+            </header>
+            <div className="space-y-8">
+              <div className="border border-border-gray rounded-xl overflow-hidden bg-white shadow-sm">
+                <div className="p-6 space-y-6">
+                  <div className="flex items-center justify-between">
+                    <div>
+                      <h3 className="text-sm font-bold">
+                        Toggle Search Window
+                      </h3>
+                      <p className="text-xs text-text-secondary mt-1">
+                        Global shortcut to show or hide the main search
+                        interface.
+                      </p>
+                    </div>
+                    <button
+                      type="button"
+                      className="px-3 py-1.5 bg-gray-100 border border-border-gray rounded-md text-xs font-mono font-medium text-gray-700 hover:bg-gray-200 transition-colors"
+                    >
+                      Alt + Space
+                    </button>
+                  </div>
+                  <div className="h-px bg-border-gray w-full"></div>
+                  <div className="flex items-center justify-between">
+                    <div>
+                      <h3 className="text-sm font-bold">Open Settings</h3>
+                      <p className="text-xs text-text-secondary mt-1">
+                        Shortcut to open this settings window.
+                      </p>
+                    </div>
+                    <button
+                      type="button"
+                      className="px-3 py-1.5 bg-gray-100 border border-border-gray rounded-md text-xs font-mono font-medium text-gray-700 hover:bg-gray-200 transition-colors"
+                    >
+                      Ctrl + ,
+                    </button>
+                  </div>
+                </div>
+              </div>
+            </div>
+          </div>
+        );
+      case "appearance":
+        return (
+          <div className="max-w-[800px] mx-auto py-12 px-10">
+            <header className="mb-12">
+              <div className="flex items-center gap-2 text-text-secondary text-xs mb-3">
+                <span>Settings</span>
+                <span className="material-symbols-outlined text-[14px]">
+                  chevron_right
+                </span>
+                <span className="text-black font-medium">Appearance</span>
+              </div>
+              <h1 className="text-3xl font-bold tracking-tight mb-3">
+                Appearance
+              </h1>
+              <p className="text-sm text-text-secondary max-w-xl leading-relaxed">
+                Customize how the application looks and feels.
+              </p>
+            </header>
+            <div className="space-y-8">
+              <div className="border border-border-gray rounded-xl overflow-hidden bg-white shadow-sm">
+                <div className="p-6 space-y-6">
+                  <div>
+                    <h3 className="text-sm font-bold mb-4">Theme</h3>
+                    <div className="grid grid-cols-3 gap-4">
+                      <button
+                        type="button"
+                        className="flex flex-col items-center gap-2 p-4 border-2 border-black rounded-lg bg-white"
+                      >
+                        <div className="w-full h-20 bg-gray-100 rounded-md border border-gray-200 flex items-center justify-center">
+                          <span className="material-symbols-outlined text-gray-400">
+                            light_mode
+                          </span>
+                        </div>
+                        <span className="text-xs font-medium">Light</span>
+                      </button>
+                      <button
+                        type="button"
+                        className="flex flex-col items-center gap-2 p-4 border-2 border-transparent hover:border-gray-200 rounded-lg bg-white"
+                      >
+                        <div className="w-full h-20 bg-gray-900 rounded-md border border-gray-800 flex items-center justify-center">
+                          <span className="material-symbols-outlined text-gray-400">
+                            dark_mode
+                          </span>
+                        </div>
+                        <span className="text-xs font-medium">Dark</span>
+                      </button>
+                      <button
+                        type="button"
+                        className="flex flex-col items-center gap-2 p-4 border-2 border-transparent hover:border-gray-200 rounded-lg bg-white"
+                      >
+                        <div className="w-full h-20 bg-gradient-to-br from-gray-100 to-gray-900 rounded-md border border-gray-300 flex items-center justify-center">
+                          <span className="material-symbols-outlined text-gray-400">
+                            brightness_auto
+                          </span>
+                        </div>
+                        <span className="text-xs font-medium">System</span>
+                      </button>
+                    </div>
+                  </div>
+                </div>
+              </div>
+            </div>
+          </div>
+        );
+      case "about":
+        return (
+          <div className="max-w-[800px] mx-auto py-12 px-10">
+            <header className="mb-12">
+              <div className="flex items-center gap-2 text-text-secondary text-xs mb-3">
+                <span>Settings</span>
+                <span className="material-symbols-outlined text-[14px]">
+                  chevron_right
+                </span>
+                <span className="text-black font-medium">About</span>
+              </div>
+              <h1 className="text-3xl font-bold tracking-tight mb-3">About</h1>
+              <p className="text-sm text-text-secondary max-w-xl leading-relaxed">
+                Information about the application and its creators.
+              </p>
+            </header>
+            <div className="space-y-8">
+              <div className="border border-border-gray rounded-xl overflow-hidden bg-white shadow-sm">
+                <div className="p-8 flex flex-col items-center text-center">
+                  <div className="w-20 h-20 bg-black rounded-2xl flex items-center justify-center mb-4 shadow-lg">
+                    <span className="material-symbols-outlined text-white text-4xl">
+                      search
+                    </span>
+                  </div>
+                  <h2 className="text-xl font-bold">AI Quick Search</h2>
+                  <p className="text-sm text-text-secondary mt-1 mb-6">
+                    Version 1.0.0
+                  </p>
+
+                  <div className="flex gap-4">
+                    <button
+                      type="button"
+                      className="px-4 py-2 bg-gray-100 hover:bg-gray-200 text-sm font-medium rounded-md transition-colors"
+                    >
+                      Check for Updates
+                    </button>
+                    <button
+                      type="button"
+                      className="px-4 py-2 border border-border-gray hover:bg-gray-50 text-sm font-medium rounded-md transition-colors"
+                    >
+                      View on GitHub
+                    </button>
+                  </div>
+                </div>
+                <div className="border-t border-border-gray p-6 bg-gray-50">
+                  <div className="text-xs text-text-secondary text-center space-y-2">
+                    <p>Built with Tauri, React, and Tailwind CSS.</p>
+                    <p>
+                      &copy; {new Date().getFullYear()} AI Quick Search. All
+                      rights reserved.
+                    </p>
+                  </div>
+                </div>
+              </div>
+            </div>
+          </div>
+        );
+      default:
+        return (
+          <div className="max-w-[800px] mx-auto py-12 px-10">
+            <header className="mb-12 flex items-start justify-between">
+              <div>
+                <div className="flex items-center gap-2 text-text-secondary text-xs mb-3">
+                  <span>Settings</span>
+                  <span className="material-symbols-outlined text-[14px]">
+                    chevron_right
+                  </span>
+                  <span className="text-black font-medium">LLM Models</span>
+                </div>
+                <h1 className="text-3xl font-bold tracking-tight mb-3">
+                  LLM Models
+                </h1>
+                <p className="text-sm text-text-secondary max-w-xl leading-relaxed">
+                  Connect your AI provider API keys to enable multi-model chat.
+                  Your keys are encrypted and stored locally on your machine.
+                </p>
+              </div>
+              <Dialog
+                open={isNewProviderOpen}
+                onOpenChange={(open) => {
+                  setIsNewProviderOpen(open);
+                  if (open) {
+                    // Reset form when opening
+                    setNewProviderType("openai");
+                    setNewProviderName(PROVIDER_TYPE_INFO.openai.label);
+                    setNewProviderBaseUrl(
+                      PROVIDER_TYPE_INFO.openai.defaultBaseUrl ?? "",
+                    );
+                    setNewProviderModel(PROVIDER_TYPE_INFO.openai.defaultModel);
+                    setNewProviderApiKey("");
+                    setNewProviderShowApiKey(false);
+                  }
+                }}
+              >
+                <DialogTrigger asChild>
+                  <button
+                    type="button"
+                    className="flex items-center gap-2 px-4 h-9 bg-black text-white text-xs font-medium rounded-md hover:bg-neutral-800 transition-colors shadow-sm shrink-0"
+                  >
+                    <span className="material-symbols-outlined text-[16px]">
+                      add
+                    </span>
+                    New Provider
+                  </button>
+                </DialogTrigger>
+                <DialogContent className="sm:max-w-[425px]">
+                  <DialogHeader>
+                    <DialogTitle>Add New Provider</DialogTitle>
+                    <DialogDescription>
+                      Configure an AI provider to use for queries.
+                    </DialogDescription>
+                  </DialogHeader>
+                  <div className="grid gap-4 py-4">
+                    <div className="grid gap-2">
+                      <label
+                        htmlFor="provider-type"
+                        className="text-xs font-medium"
+                      >
+                        Provider Type
+                      </label>
+                      <select
+                        id="provider-type"
+                        className="flex h-9 w-full rounded-md border border-border-gray bg-transparent px-3 py-1 text-sm shadow-sm focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-black"
+                        value={newProviderType}
+                        onChange={(e) =>
+                          handleNewProviderTypeChange(
+                            e.target.value as ProviderType,
+                          )
+                        }
+                      >
+                        <option value="openai">OpenAI</option>
+                        <option value="anthropic">Anthropic</option>
+                        <option value="google">Google Gemini</option>
+                        <option value="custom">Custom</option>
+                      </select>
+                    </div>
+                    <div className="grid gap-2">
+                      <label
+                        htmlFor="provider-name"
+                        className="text-xs font-medium"
+                      >
+                        Provider Name
+                      </label>
+                      <input
+                        id="provider-name"
+                        placeholder="e.g. OpenAI, Claude, Gemini"
+                        value={newProviderName}
+                        onChange={(e) => setNewProviderName(e.target.value)}
+                        className="flex h-9 w-full rounded-md border border-border-gray bg-transparent px-3 py-1 text-sm shadow-sm transition-colors placeholder:text-text-secondary focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-black"
+                      />
+                    </div>
+                    <div className="grid gap-2">
+                      <label htmlFor="base-url" className="text-xs font-medium">
+                        Base URL
+                      </label>
+                      <input
+                        id="base-url"
+                        placeholder="https://api.example.com/v1"
+                        value={newProviderBaseUrl}
+                        onChange={(e) => setNewProviderBaseUrl(e.target.value)}
+                        className="flex h-9 w-full rounded-md border border-border-gray bg-transparent px-3 py-1 text-sm shadow-sm transition-colors placeholder:text-text-secondary focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-black"
+                      />
+                    </div>
+                    <div className="grid gap-2">
+                      <label
+                        htmlFor="model-name"
+                        className="text-xs font-medium"
+                      >
+                        Default Model
+                      </label>
+                      <input
+                        id="model-name"
+                        placeholder="e.g. gpt-4o-mini"
+                        value={newProviderModel}
+                        onChange={(e) => setNewProviderModel(e.target.value)}
+                        className="flex h-9 w-full rounded-md border border-border-gray bg-transparent px-3 py-1 text-sm shadow-sm transition-colors placeholder:text-text-secondary focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-black"
+                      />
+                    </div>
+                    <div className="grid gap-2">
+                      <label htmlFor="api-key" className="text-xs font-medium">
+                        API Key
+                      </label>
+                      <div className="relative">
+                        <input
+                          id="api-key"
+                          type={newProviderShowApiKey ? "text" : "password"}
+                          placeholder="sk-..."
+                          value={newProviderApiKey}
+                          onChange={(e) => setNewProviderApiKey(e.target.value)}
+                          className="flex h-9 w-full rounded-md border border-border-gray bg-transparent px-3 py-1 pr-10 text-sm shadow-sm transition-colors placeholder:text-text-secondary focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-black"
+                        />
+                        <button
+                          type="button"
+                          className="absolute right-2 top-1/2 -translate-y-1/2 text-text-secondary hover:text-black transition-colors"
+                          onClick={() =>
+                            setNewProviderShowApiKey((prev) => !prev)
+                          }
+                          title={
+                            newProviderShowApiKey
+                              ? "Hide API Key"
+                              : "Show API Key"
+                          }
+                        >
+                          <span className="material-symbols-outlined text-[18px]">
+                            {newProviderShowApiKey
+                              ? "visibility_off"
+                              : "visibility"}
+                          </span>
+                        </button>
+                      </div>
+                    </div>
+                  </div>
+                  <DialogFooter>
+                    <button
+                      type="button"
+                      onClick={() => setIsNewProviderOpen(false)}
+                      className="px-4 h-9 border border-border-gray text-xs font-medium rounded-md hover:bg-gray-50 transition-colors shadow-sm"
+                    >
+                      Cancel
+                    </button>
+                    <button
+                      type="button"
+                      onClick={handleCreateProvider}
+                      disabled={isCreatingProvider}
+                      className="px-4 h-9 bg-black text-white text-xs font-medium rounded-md hover:bg-neutral-800 transition-colors shadow-sm disabled:opacity-50"
+                    >
+                      {isCreatingProvider ? "Creating..." : "Create Provider"}
+                    </button>
+                  </DialogFooter>
+                </DialogContent>
+              </Dialog>
+            </header>
+            <div className="space-y-8">
+              {isLoadingProviders ? (
+                <div className="text-center py-12 text-text-secondary">
+                  Loading providers...
+                </div>
+              ) : providers.length === 0 ? (
+                <div className="text-center py-12 text-text-secondary">
+                  No providers configured. Click "New Provider" to add one.
+                </div>
+              ) : (
+                providers.map((provider) => (
+                  <ProviderCard
+                    key={provider.id}
+                    provider={provider}
+                    onSetActive={setActiveProvider}
+                    onDelete={deleteProvider}
+                    onUpdate={updateProvider}
+                    onSetApiKey={setApiKey}
+                    onGetApiKey={getApiKey}
+                    onTestConnection={testConnection}
+                  />
+                ))
+              )}
+            </div>
+          </div>
+        );
     }
   };
 
   return (
-    <div className="flex h-screen w-full bg-white text-black font-sans overflow-hidden rounded-xl border border-border-gray shadow-2xl flex-col">
+    <div className="h-screen w-screen bg-white text-black font-sans flex flex-col overflow-hidden rounded-xl border border-border-gray shadow-2xl">
       {/* Custom Titlebar */}
       <div
         data-tauri-drag-region
@@ -156,45 +594,70 @@ export default function Settings() {
             <nav className="space-y-1">
               <button
                 type="button"
-                className="flex items-center gap-3 px-3 py-2.5 rounded-md text-sm text-text-secondary hover:bg-[#FAFAFA] hover:text-black transition-all w-full text-left"
+                onClick={() => setActiveTab("general")}
+                className={`w-full flex items-center gap-3 px-3 py-2 text-sm font-medium rounded-md transition-colors ${
+                  activeTab === "general"
+                    ? "bg-black text-white shadow-sm"
+                    : "text-text-secondary hover:bg-gray-100 hover:text-black"
+                }`}
               >
-                <span className="material-symbols-outlined text-[20px]">
+                <span className="material-symbols-outlined text-[18px]">
                   settings
                 </span>
                 General
               </button>
               <button
                 type="button"
-                className="flex items-center gap-3 px-3 py-2.5 rounded-md text-sm bg-[#FAFAFA] font-semibold text-black transition-all w-full text-left"
+                onClick={() => setActiveTab("llm-models")}
+                className={`w-full flex items-center gap-3 px-3 py-2 text-sm font-medium rounded-md transition-colors ${
+                  activeTab === "llm-models"
+                    ? "bg-black text-white shadow-sm"
+                    : "text-text-secondary hover:bg-gray-100 hover:text-black"
+                }`}
               >
-                <span className="material-symbols-outlined text-[20px]">
-                  hub
+                <span className="material-symbols-outlined text-[18px]">
+                  neurology
                 </span>
                 LLM Models
               </button>
               <button
                 type="button"
-                className="flex items-center gap-3 px-3 py-2.5 rounded-md text-sm text-text-secondary hover:bg-[#FAFAFA] hover:text-black transition-all w-full text-left"
+                onClick={() => setActiveTab("hotkeys")}
+                className={`w-full flex items-center gap-3 px-3 py-2 text-sm font-medium rounded-md transition-colors ${
+                  activeTab === "hotkeys"
+                    ? "bg-black text-white shadow-sm"
+                    : "text-text-secondary hover:bg-gray-100 hover:text-black"
+                }`}
               >
-                <span className="material-symbols-outlined text-[20px]">
+                <span className="material-symbols-outlined text-[18px]">
                   keyboard
                 </span>
                 Hotkeys
               </button>
               <button
                 type="button"
-                className="flex items-center gap-3 px-3 py-2.5 rounded-md text-sm text-text-secondary hover:bg-[#FAFAFA] hover:text-black transition-all w-full text-left"
+                onClick={() => setActiveTab("appearance")}
+                className={`w-full flex items-center gap-3 px-3 py-2 text-sm font-medium rounded-md transition-colors ${
+                  activeTab === "appearance"
+                    ? "bg-black text-white shadow-sm"
+                    : "text-text-secondary hover:bg-gray-100 hover:text-black"
+                }`}
               >
-                <span className="material-symbols-outlined text-[20px]">
+                <span className="material-symbols-outlined text-[18px]">
                   palette
                 </span>
                 Appearance
               </button>
               <button
                 type="button"
-                className="flex items-center gap-3 px-3 py-2.5 rounded-md text-sm text-text-secondary hover:bg-[#FAFAFA] hover:text-black transition-all w-full text-left"
+                onClick={() => setActiveTab("about")}
+                className={`w-full flex items-center gap-3 px-3 py-2 text-sm font-medium rounded-md transition-colors ${
+                  activeTab === "about"
+                    ? "bg-black text-white shadow-sm"
+                    : "text-text-secondary hover:bg-gray-100 hover:text-black"
+                }`}
               >
-                <span className="material-symbols-outlined text-[20px]">
+                <span className="material-symbols-outlined text-[18px]">
                   info
                 </span>
                 About
@@ -216,319 +679,7 @@ export default function Settings() {
           </div>
         </aside>
         <main className="flex-1 overflow-y-auto bg-white">
-          <div className="max-w-[800px] mx-auto py-12 px-10">
-            <header className="mb-12 flex items-start justify-between">
-              <div>
-                <div className="flex items-center gap-2 text-text-secondary text-xs mb-3">
-                  <span>Settings</span>
-                  <span className="material-symbols-outlined text-[14px]">
-                    chevron_right
-                  </span>
-                  <span className="text-black font-medium">LLM Models</span>
-                </div>
-                <h1 className="text-3xl font-bold tracking-tight mb-3">
-                  LLM Models
-                </h1>
-                <p className="text-sm text-text-secondary max-w-xl leading-relaxed">
-                  Connect your AI provider API keys to enable multi-model chat.
-                  Your keys are encrypted and stored locally on your machine.
-                </p>
-              </div>
-              <Dialog
-                open={isNewProviderOpen}
-                onOpenChange={setIsNewProviderOpen}
-              >
-                <DialogTrigger asChild>
-                  <button
-                    type="button"
-                    className="flex items-center gap-2 px-4 h-9 bg-black text-white text-xs font-medium rounded-md hover:bg-neutral-800 transition-colors shadow-sm shrink-0"
-                  >
-                    <span className="material-symbols-outlined text-[16px]">
-                      add
-                    </span>
-                    New Provider
-                  </button>
-                </DialogTrigger>
-                <DialogContent className="sm:max-w-[425px]">
-                  <DialogHeader>
-                    <DialogTitle>Add New Provider</DialogTitle>
-                    <DialogDescription>
-                      Configure a custom OpenAI-compatible API endpoint.
-                    </DialogDescription>
-                  </DialogHeader>
-                  <div className="grid gap-4 py-4">
-                    <div className="grid gap-2">
-                      <label
-                        htmlFor="provider-name"
-                        className="text-xs font-medium"
-                      >
-                        Provider Name
-                      </label>
-                      <input
-                        id="provider-name"
-                        placeholder="e.g. DeepSeek, Groq, Local LM Studio"
-                        className="flex h-9 w-full rounded-md border border-border-gray bg-transparent px-3 py-1 text-sm shadow-sm transition-colors file:border-0 file:bg-transparent file:text-sm file:font-medium placeholder:text-text-secondary focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-black disabled:cursor-not-allowed disabled:opacity-50"
-                      />
-                    </div>
-                    <div className="grid gap-2">
-                      <label htmlFor="base-url" className="text-xs font-medium">
-                        Base URL
-                      </label>
-                      <input
-                        id="base-url"
-                        placeholder="https://api.example.com/v1"
-                        className="flex h-9 w-full rounded-md border border-border-gray bg-transparent px-3 py-1 text-sm shadow-sm transition-colors file:border-0 file:bg-transparent file:text-sm file:font-medium placeholder:text-text-secondary focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-black disabled:cursor-not-allowed disabled:opacity-50"
-                      />
-                    </div>
-                    <div className="grid gap-2">
-                      <label htmlFor="api-key" className="text-xs font-medium">
-                        API Key
-                      </label>
-                      <input
-                        id="api-key"
-                        type="password"
-                        placeholder="sk-..."
-                        className="flex h-9 w-full rounded-md border border-border-gray bg-transparent px-3 py-1 text-sm shadow-sm transition-colors file:border-0 file:bg-transparent file:text-sm file:font-medium placeholder:text-text-secondary focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-black disabled:cursor-not-allowed disabled:opacity-50"
-                      />
-                    </div>
-                    <div className="grid gap-2">
-                      <label
-                        htmlFor="model-name"
-                        className="text-xs font-medium"
-                      >
-                        Default Model Name
-                      </label>
-                      <input
-                        id="model-name"
-                        placeholder="e.g. deepseek-chat"
-                        className="flex h-9 w-full rounded-md border border-border-gray bg-transparent px-3 py-1 text-sm shadow-sm transition-colors file:border-0 file:bg-transparent file:text-sm file:font-medium placeholder:text-text-secondary focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-black disabled:cursor-not-allowed disabled:opacity-50"
-                      />
-                    </div>
-                  </div>
-                  <DialogFooter>
-                    <button
-                      type="button"
-                      onClick={() => setIsNewProviderOpen(false)}
-                      className="px-4 h-9 border border-border-gray text-xs font-medium rounded-md hover:bg-gray-50 transition-colors shadow-sm"
-                    >
-                      Cancel
-                    </button>
-                    <button
-                      type="button"
-                      onClick={() => setIsNewProviderOpen(false)}
-                      className="px-4 h-9 bg-black text-white text-xs font-medium rounded-md hover:bg-neutral-800 transition-colors shadow-sm"
-                    >
-                      Save Provider
-                    </button>
-                  </DialogFooter>
-                </DialogContent>
-              </Dialog>
-            </header>
-            <div className="space-y-8">
-              <div className="border border-border-gray rounded-xl overflow-hidden bg-white shadow-sm hover:shadow-md transition-shadow">
-                <div className="p-6">
-                  <div className="flex items-start justify-between mb-6">
-                    <div className="flex items-center gap-4">
-                      <div className="w-12 h-12 bg-black rounded-xl flex items-center justify-center shadow-inner">
-                        <span className="material-symbols-outlined text-white text-2xl">
-                          bolt
-                        </span>
-                      </div>
-                      <div>
-                        <h2 className="text-lg font-bold">OpenAI</h2>
-                        <p className="text-xs text-text-secondary mt-1">
-                          Supports GPT-4o, GPT-4 Turbo, and specialized
-                          embedding models.
-                        </p>
-                      </div>
-                    </div>
-                    <div className="flex items-center gap-3">
-                      <span className="text-[10px] font-medium text-text-secondary uppercase tracking-wider">
-                        Active
-                      </span>
-                      <label className="relative inline-flex items-center cursor-pointer">
-                        <input
-                          defaultChecked
-                          className="sr-only peer"
-                          type="checkbox"
-                        />
-                        <div className="w-9 h-5 bg-gray-200 peer-focus:outline-none rounded-full peer peer-checked:after:translate-x-full peer-checked:after:border-white after:content-[''] after:absolute after:top-[2px] after:left-[2px] after:bg-white after:border-gray-300 after:border after:rounded-full after:h-4 after:w-4 after:transition-all peer-checked:bg-black"></div>
-                      </label>
-                    </div>
-                  </div>
-                  <div className="space-y-3">
-                    <div className="flex justify-between items-end">
-                      <span className="text-[10px] font-bold uppercase tracking-[0.1em] text-text-secondary">
-                        API Key
-                      </span>
-                      <a
-                        className="text-[10px] text-blue-600 hover:underline font-medium"
-                        href="https://platform.openai.com/api-keys"
-                        target="_blank"
-                        rel="noopener noreferrer"
-                      >
-                        Get key from OpenAI dashboard
-                      </a>
-                    </div>
-                    <div className="flex gap-3">
-                      <input
-                        className="flex-1 h-9 px-3 border border-border-gray rounded-md text-xs focus:ring-1 focus:ring-black focus:border-black outline-none transition-all"
-                        placeholder="sk-..."
-                        type="password"
-                        value={providerConfig.api_key}
-                        onChange={(event) =>
-                          setProviderConfig((prev) => ({
-                            ...prev,
-                            api_key: event.target.value,
-                          }))
-                        }
-                      />
-                    </div>
-                    <div className="flex gap-3">
-                      <input
-                        className="flex-1 h-9 px-3 border border-border-gray rounded-md text-xs focus:ring-1 focus:ring-black focus:border-black outline-none transition-all"
-                        placeholder="https://api.openai.com/v1"
-                        value={providerConfig.base_url}
-                        onChange={(event) =>
-                          setProviderConfig((prev) => ({
-                            ...prev,
-                            base_url: event.target.value,
-                          }))
-                        }
-                      />
-                      <button
-                        type="button"
-                        className="px-4 h-9 bg-black text-white text-xs font-medium rounded-md hover:bg-neutral-800 transition-colors shadow-sm disabled:opacity-50"
-                        onClick={saveProviderConfig}
-                        disabled={isSaving}
-                      >
-                        {isSaving ? "Saving..." : "Save"}
-                      </button>
-                    </div>
-                    {saveMessage && (
-                      <p className="text-[11px] text-text-secondary">
-                        {saveMessage}
-                      </p>
-                    )}
-                  </div>
-                </div>
-              </div>
-              <div className="border border-border-gray rounded-xl overflow-hidden bg-white shadow-sm hover:shadow-md transition-shadow">
-                <div className="p-6">
-                  <div className="flex items-start justify-between mb-6">
-                    <div className="flex items-center gap-4">
-                      <div className="w-12 h-12 bg-amber-50 rounded-xl border border-amber-100 flex items-center justify-center">
-                        <span className="material-symbols-outlined text-amber-700 text-2xl">
-                          temp_preferences_custom
-                        </span>
-                      </div>
-                      <div>
-                        <h2 className="text-lg font-bold">Anthropic</h2>
-                        <p className="text-xs text-text-secondary mt-1">
-                          Claude 3.5 Sonnet, Claude 3 Opus, and Haiku for fast
-                          processing.
-                        </p>
-                      </div>
-                    </div>
-                    <div className="flex items-center gap-3">
-                      <span className="text-[10px] font-medium text-text-secondary uppercase tracking-wider">
-                        Disabled
-                      </span>
-                      <label className="relative inline-flex items-center cursor-pointer">
-                        <input className="sr-only peer" type="checkbox" />
-                        <div className="w-9 h-5 bg-gray-200 peer-focus:outline-none rounded-full peer peer-checked:after:translate-x-full peer-checked:after:border-white after:content-[''] after:absolute after:top-[2px] after:left-[2px] after:bg-white after:border-gray-300 after:border after:rounded-full after:h-4 after:w-4 after:transition-all peer-checked:bg-black"></div>
-                      </label>
-                    </div>
-                  </div>
-                  <div className="space-y-3">
-                    <div className="flex justify-between items-end">
-                      <span className="text-[10px] font-bold uppercase tracking-[0.1em] text-text-secondary">
-                        API Key
-                      </span>
-                      <a
-                        className="text-[10px] text-blue-600 hover:underline font-medium"
-                        href="https://console.anthropic.com/settings/keys"
-                        target="_blank"
-                        rel="noopener noreferrer"
-                      >
-                        Anthropic Console
-                      </a>
-                    </div>
-                    <div className="flex gap-3">
-                      <input
-                        className="flex-1 h-9 px-3 border border-border-gray rounded-md text-xs focus:ring-1 focus:ring-black focus:border-black outline-none transition-all bg-gray-50/50"
-                        placeholder="sk-ant-..."
-                        type="password"
-                      />
-                      <button
-                        type="button"
-                        className="px-4 h-9 border border-border-gray text-xs font-medium rounded-md hover:bg-gray-50 transition-colors shadow-sm"
-                      >
-                        Verify Connection
-                      </button>
-                    </div>
-                  </div>
-                </div>
-              </div>
-              <div className="border border-border-gray rounded-xl overflow-hidden bg-white shadow-sm hover:shadow-md transition-shadow">
-                <div className="p-6">
-                  <div className="flex items-start justify-between mb-6">
-                    <div className="flex items-center gap-4">
-                      <div className="w-12 h-12 bg-blue-50 rounded-xl border border-blue-100 flex items-center justify-center">
-                        <span className="material-symbols-outlined text-blue-600 text-2xl">
-                          auto_awesome
-                        </span>
-                      </div>
-                      <div>
-                        <h2 className="text-lg font-bold">Google Gemini</h2>
-                        <p className="text-xs text-text-secondary mt-1">
-                          Gemini 1.5 Pro and Flash. Advanced reasoning with
-                          massive context windows.
-                        </p>
-                      </div>
-                    </div>
-                    <div className="flex items-center gap-3">
-                      <span className="text-[10px] font-medium text-text-secondary uppercase tracking-wider">
-                        Disabled
-                      </span>
-                      <label className="relative inline-flex items-center cursor-pointer">
-                        <input className="sr-only peer" type="checkbox" />
-                        <div className="w-9 h-5 bg-gray-200 peer-focus:outline-none rounded-full peer peer-checked:after:translate-x-full peer-checked:after:border-white after:content-[''] after:absolute after:top-[2px] after:left-[2px] after:bg-white after:border-gray-300 after:border after:rounded-full after:h-4 after:w-4 after:transition-all peer-checked:bg-black"></div>
-                      </label>
-                    </div>
-                  </div>
-                  <div className="space-y-3">
-                    <div className="flex justify-between items-end">
-                      <span className="text-[10px] font-bold uppercase tracking-[0.1em] text-text-secondary">
-                        API Key
-                      </span>
-                      <a
-                        className="text-[10px] text-blue-600 hover:underline font-medium"
-                        href="https://aistudio.google.com/apikey"
-                        target="_blank"
-                        rel="noopener noreferrer"
-                      >
-                        Google AI Studio
-                      </a>
-                    </div>
-                    <div className="flex gap-3">
-                      <input
-                        className="flex-1 h-9 px-3 border border-border-gray rounded-md text-xs focus:ring-1 focus:ring-black focus:border-black outline-none transition-all bg-gray-50/50"
-                        placeholder="AIzaSy..."
-                        type="password"
-                      />
-                      <button
-                        type="button"
-                        className="px-4 h-9 border border-border-gray text-xs font-medium rounded-md hover:bg-gray-50 transition-colors shadow-sm"
-                      >
-                        Verify Connection
-                      </button>
-                    </div>
-                  </div>
-                </div>
-              </div>
-            </div>
-          </div>
+          {renderTabContent()}
         </main>
       </div>
     </div>

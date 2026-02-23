@@ -194,6 +194,19 @@ function Main() {
   };
 
   const handleAppSelect = async (app: AppInfo) => {
+    if (app.path === "ask-ai") {
+      try {
+        const { Window } = await import("@tauri-apps/api/window");
+        const chatWindow = new Window("chat");
+        await chatWindow.show();
+        await chatWindow.setFocus();
+        await hideLauncher();
+      } catch (e) {
+        console.error("Failed to open chat window:", e);
+      }
+      return;
+    }
+
     try {
       await invoke("launch_app", { path: app.path });
       if (!isQueryMode) {

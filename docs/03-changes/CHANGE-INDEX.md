@@ -1,6 +1,10 @@
 # Change Index
 
 ## 2026
+- `2026-02-23-multi-provider-crud`
+  - Status: Completed
+  - Scope: Multi-provider CRUD with database migrations, React hook, connection testing
+  - Archive: `docs/03-changes/2026/2026-02-23-multi-provider-crud/`
 - `2026-02-23-sqlite-persistence-and-settings-ui`
   - Status: Completed
   - Scope: SQLite database layer, repository pattern, keyring API storage, React Router routing, Settings page
