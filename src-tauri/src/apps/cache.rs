@@ -1,24 +1,14 @@
 use crate::apps::{scanner, AppInfo};
+use crate::db::AppsRepository;
 use once_cell::sync::Lazy;
-use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
-use std::fs;
-use std::path::PathBuf;
 use std::sync::Arc;
-use std::time::{SystemTime, UNIX_EPOCH};
 use tokio::sync::RwLock;
 
+// In-memory caches for fast access
 static APP_CACHE: Lazy<Arc<RwLock<Vec<AppInfo>>>> = Lazy::new(|| Arc::new(RwLock::new(Vec::new())));
 static ICON_CACHE: Lazy<Arc<RwLock<HashMap<String, Option<String>>>>> =
     Lazy::new(|| Arc::new(RwLock::new(HashMap::new())));
-static USAGE_CACHE: Lazy<Arc<RwLock<HashMap<String, UsageEntry>>>> =
-    Lazy::new(|| Arc::new(RwLock::new(HashMap::new())));
-
-#[derive(Debug, Clone, Serialize, Deserialize, Default)]
-struct UsageEntry {
-    launch_count: u64,
-    last_launched_at: u64,
-}
 
 fn normalize_path_key(path: &str) -> String {
     path.trim()
@@ -31,51 +21,12 @@ fn normalize_display_name(name: &str) -> String {
     name.split_whitespace().collect::<Vec<_>>().join(" ")
 }
 
-fn usage_file_path() -> Option<PathBuf> {
-    dirs::data_local_dir().map(|dir| dir.join("ai-quick-search").join("usage-stats.json"))
-}
-
-fn read_usage_from_disk() -> HashMap<String, UsageEntry> {
-    let Some(path) = usage_file_path() else {
-        return HashMap::new();
-    };
-
-    let Ok(contents) = fs::read_to_string(path) else {
-        return HashMap::new();
-    };
-
-    serde_json::from_str(&contents).unwrap_or_default()
-}
-
-fn write_usage_to_disk(stats: &HashMap<String, UsageEntry>) {
-    let Some(path) = usage_file_path() else {
-        return;
-    };
-
-    if let Some(parent) = path.parent() {
-        let _ = fs::create_dir_all(parent);
-    }
-
-    if let Ok(serialized) = serde_json::to_string(stats) {
-        let _ = fs::write(path, serialized);
-    }
-}
-
-fn now_unix_seconds() -> u64 {
-    SystemTime::now()
-        .duration_since(UNIX_EPOCH)
-        .map(|d| d.as_secs())
-        .unwrap_or(0)
-}
-
 pub async fn get_cached_apps() -> Vec<AppInfo> {
     let cache = APP_CACHE.read().await;
     cache.clone()
 }
 
 pub async fn refresh_cache() {
-    let mut cache = APP_CACHE.write().await;
-
     // Scan both registry and start menu
     let mut apps = scanner::scan_installed_apps();
     apps.extend(scanner::scan_start_menu());
@@ -107,13 +58,48 @@ pub async fn refresh_cache() {
 
     let mut unique_apps: Vec<AppInfo> = deduped.into_values().collect();
     unique_apps.sort_by(|a, b| a.name.to_lowercase().cmp(&b.name.to_lowercase()));
-    *cache = unique_apps;
+
+    // Persist atomically to database.
+    let apps_to_save = unique_apps.clone();
+    match tokio::task::spawn_blocking(move || AppsRepository::sync_apps(&apps_to_save)).await {
+        Ok(Ok(())) => {}
+        Ok(Err(e)) => eprintln!("Failed to sync apps to database: {e}"),
+        Err(e) => eprintln!("Failed to join app sync task: {e}"),
+    }
+
+    *APP_CACHE.write().await = unique_apps;
 }
 
 pub async fn initialize_cache() {
-    refresh_cache().await;
-    let usage = read_usage_from_disk();
-    *USAGE_CACHE.write().await = usage;
+    // Try to load from database first.
+    let db_apps = tokio::task::spawn_blocking(AppsRepository::get_all_apps).await;
+    let loaded_from_db = match db_apps {
+        Ok(Ok(apps)) if !apps.is_empty() => {
+            *APP_CACHE.write().await = apps;
+            true
+        }
+        Ok(Ok(_)) => false,
+        Ok(Err(e)) => {
+            eprintln!("Failed to read apps from database: {e}");
+            false
+        }
+        Err(e) => {
+            eprintln!("Failed to join database read task: {e}");
+            false
+        }
+    };
+
+    if !loaded_from_db {
+        // Database empty or unavailable, scan system.
+        refresh_cache().await;
+    }
+
+    // Always attempt one-time JSON usage migration after app list is available.
+    match tokio::task::spawn_blocking(AppsRepository::migrate_from_json).await {
+        Ok(Ok(())) => {}
+        Ok(Err(e)) => eprintln!("Failed to migrate usage stats: {e}"),
+        Err(e) => eprintln!("Failed to join usage migration task: {e}"),
+    }
 }
 
 pub async fn get_or_extract_icon(path: String) -> Option<String> {
@@ -123,11 +109,43 @@ pub async fn get_or_extract_icon(path: String) -> Option<String> {
     }
 
     let cache_key = normalize_path_key(trimmed);
+
+    // Check in-memory cache first
     if let Some(icon) = ICON_CACHE.read().await.get(&cache_key).cloned() {
         return icon;
     }
 
+    // Try database cache
+    let path_for_db = trimmed.to_string();
+    let db_result =
+        tokio::task::spawn_blocking(move || AppsRepository::get_icon(&path_for_db)).await;
+
+    if let Ok(Ok(Some(ref icon))) = db_result {
+        ICON_CACHE
+            .write()
+            .await
+            .insert(cache_key.clone(), Some(icon.clone()));
+        return Some(icon.clone());
+    }
+
+    // Extract from executable
     let icon = scanner::extract_icon_data_url(trimmed);
+
+    // Save to caches
+    if let Some(ref icon_data) = icon {
+        let path_for_save = trimmed.to_string();
+        let icon_data_clone = icon_data.clone();
+        match tokio::task::spawn_blocking(move || {
+            AppsRepository::save_icon(&path_for_save, &icon_data_clone)
+        })
+        .await
+        {
+            Ok(Ok(())) => {}
+            Ok(Err(e)) => eprintln!("Failed to persist app icon: {e}"),
+            Err(e) => eprintln!("Failed to join icon save task: {e}"),
+        }
+    }
+
     ICON_CACHE.write().await.insert(cache_key, icon.clone());
     icon
 }
@@ -138,47 +156,26 @@ pub async fn record_app_launch(path: &str) {
         return;
     }
 
-    let mut usage = USAGE_CACHE.write().await;
-    let entry = usage.entry(key).or_default();
-    entry.launch_count += 1;
-    entry.last_launched_at = now_unix_seconds();
-    let snapshot = usage.clone();
-    drop(usage);
-
-    write_usage_to_disk(&snapshot);
+    let path_for_db = path.to_string();
+    match tokio::task::spawn_blocking(move || AppsRepository::record_launch(&path_for_db)).await {
+        Ok(Ok(())) => {}
+        Ok(Err(e)) => eprintln!("Failed to record app launch: {e}"),
+        Err(e) => eprintln!("Failed to join app launch task: {e}"),
+    }
 }
 
 pub async fn get_suggested_apps(limit: usize) -> Vec<AppInfo> {
     let limit = limit.clamp(1, 20);
-    let apps = APP_CACHE.read().await.clone();
-    if apps.is_empty() {
-        return Vec::new();
+
+    // Try to get from database (has usage stats)
+    let db_result =
+        tokio::task::spawn_blocking(move || AppsRepository::get_suggested_apps(limit)).await;
+
+    if let Ok(Ok(apps)) = db_result {
+        if !apps.is_empty() {
+            return apps;
+        }
     }
 
-    let usage = USAGE_CACHE.read().await.clone();
-    let mut ranked: Vec<(AppInfo, u64, u64)> = apps
-        .into_iter()
-        .filter_map(|app| {
-            let key = normalize_path_key(&app.path);
-            let stat = usage.get(&key)?;
-            if stat.launch_count == 0 {
-                return None;
-            }
-            Some((app, stat.launch_count, stat.last_launched_at))
-        })
-        .collect();
-
-    ranked.sort_by(|a, b| {
-        b.1.cmp(&a.1)
-            .then_with(|| b.2.cmp(&a.2))
-            .then_with(|| a.0.name.cmp(&b.0.name))
-    });
-
-    let suggestions: Vec<AppInfo> = ranked
-        .into_iter()
-        .take(limit)
-        .map(|(app, _, _)| app)
-        .collect();
-
-    suggestions
+    Vec::new()
 }

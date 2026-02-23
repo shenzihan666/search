@@ -1,7 +1,7 @@
 {
   "identifier": "default",
   "description": "Default capabilities for AI Quick Search",
-  "windows": ["main"],
+  "windows": ["main", "settings"],
   "permissions": [
     "core:default",
     "core:window:default",
@@ -10,7 +10,11 @@
     "core:window:allow-set-focus",
     "core:window:allow-close",
     "core:window:allow-minimize",
+    "core:window:allow-maximize",
+    "core:window:allow-unmaximize",
+    "core:window:allow-toggle-maximize",
     "core:window:allow-is-visible",
+    "core:window:allow-start-dragging",
     "core:tray:default",
     "core:tray:allow-new",
     "core:tray:allow-set-icon",

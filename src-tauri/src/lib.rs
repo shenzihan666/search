@@ -6,21 +6,28 @@ use tauri::{
 use tauri_plugin_global_shortcut::{GlobalShortcutExt, ShortcutState};
 
 mod apps;
+mod db;
 mod provider;
 use apps::{
     get_app_icon, get_suggestions, initialize_cache, launch_app, refresh_app_cache, search_apps,
 };
+use db::SettingsRepository;
 use provider::{query_stream, ProviderConfig};
 
 #[tauri::command]
-async fn set_config(config: ProviderConfig, app: tauri::AppHandle) -> Result<(), String> {
-    app.manage(config);
-    Ok(())
+async fn set_config(config: ProviderConfig, _app: tauri::AppHandle) -> Result<(), String> {
+    tauri::async_runtime::spawn_blocking(move || SettingsRepository::save_provider_config(&config))
+        .await
+        .map_err(|e| e.to_string())?
+        .map_err(|e| e.to_string())
 }
 
 #[tauri::command]
 async fn get_config(_app: tauri::AppHandle) -> Result<ProviderConfig, String> {
-    Ok(ProviderConfig::default())
+    tauri::async_runtime::spawn_blocking(SettingsRepository::load_provider_config)
+        .await
+        .map_err(|e| e.to_string())?
+        .map_err(|e| e.to_string())
 }
 
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
@@ -28,6 +35,13 @@ pub fn run() {
     tauri::Builder::default()
         .plugin(tauri_plugin_global_shortcut::Builder::new().build())
         .setup(|app| {
+            // Initialize database
+            if let Err(err) = db::initialize(&app.handle()) {
+                eprintln!(
+                    "Database initialization failed, continuing with memory cache only: {err}"
+                );
+            }
+
             const TOGGLE_SHORTCUT: &str = "alt+space";
 
             // Handle shortcut events (this call also registers the shortcut).
@@ -103,7 +117,10 @@ pub fn run() {
                         }
                     }
                     "settings" => {
-                        // TODO: Open settings window
+                        if let Some(window) = app.get_webview_window("settings") {
+                            let _ = window.show();
+                            let _ = window.set_focus();
+                        }
                     }
                     "quit" => {
                         app.exit(0);

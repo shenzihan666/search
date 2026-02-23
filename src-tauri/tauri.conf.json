@@ -14,6 +14,7 @@
     "windows": [
       {
         "title": "AI Quick Search",
+        "label": "main",
         "width": 900,
         "height": 600,
         "resizable": true,
@@ -21,6 +22,18 @@
         "decorations": false,
         "transparent": true,
         "shadow": false
+      },
+      {
+        "title": "Settings",
+        "label": "settings",
+        "url": "/settings",
+        "width": 1000,
+        "height": 700,
+        "resizable": true,
+        "visible": false,
+        "decorations": false,
+        "transparent": true,
+        "shadow": true
       }
     ],
     "security": {
