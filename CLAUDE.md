@@ -36,18 +36,18 @@ npm run tauri
 
 ### Frontend (`src/`)
 - `src/App.tsx`: React Router setup with routes (`/`, `/settings`, `/chat`).
-- `src/pages/Main.tsx`: Main launcher UI.
-  - Real-time app search with 150ms debounce via `search_apps` command.
-  - **Tab** key opens multi-model chat with query.
+- `src/pages/Main.tsx`: Main launcher UI with dual modes.
+  - **Search mode**: Real-time app search with 150ms debounce.
+  - **Chat mode**: Triggered by Tab key; transforms launcher into embedded multi-model chat.
   - **Multiplier button (1x-4x)** cycles through number of providers to query.
+  - Each chat pane calls `query_provider_once` independently.
   - Handles `Esc` to hide the window.
-  - Enter launches first app result.
+  - Enter launches first app result (search mode) or submits query (chat mode).
   - Settings button opens settings window via Tauri Window API.
-- `src/pages/Chat.tsx`: Multi-model chat interface.
+- `src/pages/Chat.tsx`: Standalone multi-model chat interface.
   - Receives query and provider IDs via `chat:init` event.
   - Dynamic columns (1-4) based on selected providers.
-  - Each column calls `query_provider_once` independently.
-  - No title bar; extends launcher UI style.
+  - Manages chat sessions with message history.
   - ESC hides window; auto-hides on focus loss.
 - `src/pages/Settings.tsx`: Settings page with multi-provider configuration.
   - Uses `useProviders` hook for provider state management.
@@ -74,7 +74,7 @@ npm run tauri
   - `repositories/apps.rs`: Apps CRUD, usage tracking, icon storage, JSON migration.
   - `repositories/settings.rs`: Key-value settings with system keyring for API keys.
   - `repositories/providers.rs`: Multi-provider CRUD with API key management.
-- `src-tauri/src/provider/mod.rs`: Provider types (OpenAI, Anthropic, Google, Custom, Volcengine).
+- `src-tauri/src/provider/mod.rs`: Provider types (OpenAI, Anthropic, Google, Glm, Volcengine, Custom).
 - `src-tauri/src/provider/openai.rs`: Provider API integration.
   - Connection testing for all provider types.
   - `call_provider_and_get_text()` - Makes real HTTP calls to provider APIs.
@@ -116,12 +116,18 @@ npm run tauri
 - `reqwest` - HTTP client for provider connection testing
 
 ### Key Dependencies (Frontend)
+- `react` / `react-dom` - React 19
 - `react-router-dom` - Client-side routing
+- `cmdk` - Command palette UI (shadcn/cmdk)
+- `lucide-react` - Icon library
+- `radix-ui` - Headless UI components
+- `@tauri-apps/api` - Tauri frontend API
 
 ## Window Behavior Contract
 
 - **Main window**: Starts hidden, toggled by `Alt+Space`.
-- **Chat window**: Opens via Tab key from launcher with query.
+- **Embedded chat**: Tab key switches Main.tsx from search to chat mode (same window).
+- **Standalone chat window**: Separate `/chat` route for multi-model chat sessions.
 - Pressing `Esc` hides the window (both main and chat).
 - Losing focus hides the window (both main and chat).
 - Tray left click or `Show` menu item shows and focuses the main window.
