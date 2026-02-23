@@ -262,12 +262,14 @@ impl ProvidersRepository {
         })
     }
 
-    /// Set the active provider.
-    pub fn set_active(id: &str) -> DbResult<()> {
+    /// Set provider enabled/disabled state. Multiple providers can be enabled.
+    pub fn set_active(id: &str, is_active: bool) -> DbResult<()> {
         connection::with_connection(|conn| {
-            conn.execute("UPDATE providers SET is_active = 0", [])?;
-            let rows_affected =
-                conn.execute("UPDATE providers SET is_active = 1 WHERE id = ?", [id])?;
+            let now = now_unix_ms();
+            let rows_affected = conn.execute(
+                "UPDATE providers SET is_active = ?1, updated_at = ?2 WHERE id = ?3",
+                rusqlite::params![if is_active { 1 } else { 0 }, now, id],
+            )?;
 
             if rows_affected == 0 {
                 return Err(DbError::Query("Provider not found".to_string()));

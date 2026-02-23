@@ -13,7 +13,8 @@ use apps::{
 };
 use db::{ProvidersRepository, SettingsRepository};
 use provider::{
-    query_stream, test_provider_connection as run_provider_connection_test, ConnectionTestResult,
+    query_provider_once, query_stream, query_stream_provider,
+    test_provider_connection as run_provider_connection_test, ConnectionTestResult,
     CreateProviderRequest, Provider, ProviderView, UpdateProviderRequest,
 };
 
@@ -78,8 +79,12 @@ async fn delete_provider(id: String, _app: tauri::AppHandle) -> Result<(), Strin
 }
 
 #[tauri::command]
-async fn set_active_provider(id: String, _app: tauri::AppHandle) -> Result<(), String> {
-    tauri::async_runtime::spawn_blocking(move || ProvidersRepository::set_active(&id))
+async fn set_active_provider(
+    id: String,
+    is_active: bool,
+    _app: tauri::AppHandle,
+) -> Result<(), String> {
+    tauri::async_runtime::spawn_blocking(move || ProvidersRepository::set_active(&id, is_active))
         .await
         .map_err(|e| e.to_string())?
         .map_err(|e| e.to_string())
@@ -264,6 +269,17 @@ pub fn run() {
                 }
             });
 
+            // Setup chat window auto-hide on focus loss
+            if let Some(chat_window) = app.get_webview_window("chat") {
+                let chat_window_for_events = chat_window.clone();
+                chat_window.on_window_event(move |event| {
+                    if let WindowEvent::Focused(false) = event {
+                        // Auto-hide chat window when losing focus
+                        let _ = chat_window_for_events.hide();
+                    }
+                });
+            }
+
             // Initialize app cache in background
             tauri::async_runtime::spawn(async {
                 initialize_cache().await;
@@ -274,6 +290,8 @@ pub fn run() {
         .invoke_handler(tauri::generate_handler![
             // Legacy single-provider commands
             query_stream,
+            query_provider_once,
+            query_stream_provider,
             set_config,
             get_config,
             // Multi-provider CRUD commands

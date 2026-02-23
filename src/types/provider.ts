@@ -1,4 +1,9 @@
-export type ProviderType = "openai" | "anthropic" | "google" | "custom";
+export type ProviderType =
+  | "openai"
+  | "anthropic"
+  | "google"
+  | "volcengine"
+  | "custom";
 
 export interface Provider {
   id: string;
@@ -72,6 +77,12 @@ export const PROVIDER_TYPE_INFO: Record<
     defaultModel: "gemini-1.5-pro",
     defaultBaseUrl: "https://generativelanguage.googleapis.com/v1beta",
     keyUrl: "https://aistudio.google.com/apikey",
+  },
+  volcengine: {
+    label: "Volcengine ARK",
+    defaultModel: "deepseek-v3-2-251201",
+    defaultBaseUrl: "https://ark.cn-beijing.volces.com/api/v3",
+    keyUrl: "https://www.volcengine.com/docs/82379/1399008",
   },
   custom: {
     label: "Custom",

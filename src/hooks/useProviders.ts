@@ -103,9 +103,13 @@ export function useProviders() {
   );
 
   const setActiveProvider = useCallback(
-    async (id: string): Promise<void> => {
+    async (id: string, isActive: boolean): Promise<void> => {
       try {
-        await invoke("set_active_provider", { id });
+        await invoke("set_active_provider", {
+          id,
+          isActive,
+          is_active: isActive,
+        });
         await loadProviders();
       } catch (err) {
         console.error("Failed to set active provider:", err);

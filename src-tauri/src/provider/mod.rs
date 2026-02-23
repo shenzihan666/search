@@ -1,6 +1,9 @@
 mod openai;
 
-pub use openai::{query_stream, test_provider_connection, ConnectionTestResult, ProviderConfig};
+pub use openai::{
+    query_provider_once, query_stream, query_stream_provider, test_provider_connection,
+    ConnectionTestResult, ProviderConfig,
+};
 
 use serde::{Deserialize, Serialize};
 use std::fmt;
@@ -13,6 +16,7 @@ pub enum ProviderType {
     OpenAI,
     Anthropic,
     Google,
+    Volcengine,
     Custom,
 }
 
@@ -23,6 +27,7 @@ impl ProviderType {
             ProviderType::OpenAI => Some("https://api.openai.com/v1"),
             ProviderType::Anthropic => Some("https://api.anthropic.com/v1"),
             ProviderType::Google => Some("https://generativelanguage.googleapis.com/v1beta"),
+            ProviderType::Volcengine => Some("https://ark.cn-beijing.volces.com/api/v3"),
             ProviderType::Custom => None,
         }
     }
@@ -33,6 +38,7 @@ impl ProviderType {
             ProviderType::OpenAI => "gpt-4o-mini",
             ProviderType::Anthropic => "claude-3-5-sonnet-latest",
             ProviderType::Google => "gemini-1.5-pro",
+            ProviderType::Volcengine => "deepseek-v3-2-251201",
             ProviderType::Custom => "",
         }
     }
@@ -44,6 +50,7 @@ impl fmt::Display for ProviderType {
             ProviderType::OpenAI => write!(f, "openai"),
             ProviderType::Anthropic => write!(f, "anthropic"),
             ProviderType::Google => write!(f, "google"),
+            ProviderType::Volcengine => write!(f, "volcengine"),
             ProviderType::Custom => write!(f, "custom"),
         }
     }
@@ -57,6 +64,7 @@ impl FromStr for ProviderType {
             "openai" => Ok(ProviderType::OpenAI),
             "anthropic" => Ok(ProviderType::Anthropic),
             "google" | "gemini" => Ok(ProviderType::Google),
+            "volcengine" | "ark" | "doubao" => Ok(ProviderType::Volcengine),
             "custom" => Ok(ProviderType::Custom),
             _ => Ok(ProviderType::Custom), // Unknown types become Custom
         }
@@ -119,6 +127,7 @@ mod tests {
         assert_eq!(ProviderType::OpenAI.to_string(), "openai");
         assert_eq!(ProviderType::Anthropic.to_string(), "anthropic");
         assert_eq!(ProviderType::Google.to_string(), "google");
+        assert_eq!(ProviderType::Volcengine.to_string(), "volcengine");
         assert_eq!(ProviderType::Custom.to_string(), "custom");
     }
 
@@ -137,6 +146,10 @@ mod tests {
             ProviderType::Google
         );
         assert_eq!(
+            ProviderType::from_str("ark").unwrap(),
+            ProviderType::Volcengine
+        );
+        assert_eq!(
             ProviderType::from_str("unknown").unwrap(),
             ProviderType::Custom
         );
@@ -148,7 +161,15 @@ mod tests {
             ProviderType::OpenAI.default_base_url(),
             Some("https://api.openai.com/v1")
         );
+        assert_eq!(
+            ProviderType::Volcengine.default_base_url(),
+            Some("https://ark.cn-beijing.volces.com/api/v3")
+        );
         assert_eq!(ProviderType::Custom.default_base_url(), None);
         assert_eq!(ProviderType::OpenAI.default_model(), "gpt-4o-mini");
+        assert_eq!(
+            ProviderType::Volcengine.default_model(),
+            "deepseek-v3-2-251201"
+        );
     }
 }

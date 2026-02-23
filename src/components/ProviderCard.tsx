@@ -16,7 +16,7 @@ import { PROVIDER_TYPE_INFO } from "@/types/provider";
 
 interface ProviderCardProps {
   provider: ProviderView;
-  onSetActive: (id: string) => Promise<void>;
+  onSetActive: (id: string, isActive: boolean) => Promise<void>;
   onDelete: (id: string) => Promise<void>;
   onUpdate: (
     id: string,
@@ -41,6 +41,11 @@ const PROVIDER_ICONS: Record<
     bg: "bg-blue-50",
     border: "border-blue-100",
     iconColor: "text-blue-600",
+  },
+  volcengine: {
+    bg: "bg-orange-50",
+    border: "border-orange-100",
+    iconColor: "text-orange-600",
   },
   custom: { bg: "bg-gray-100", iconColor: "text-gray-600" },
 };
@@ -137,9 +142,7 @@ export function ProviderCard({
   };
 
   const handleToggleActive = async () => {
-    if (!provider.is_active) {
-      await onSetActive(provider.id);
-    }
+    await onSetActive(provider.id, !provider.is_active);
   };
 
   const handleTestConnection = async () => {
@@ -194,6 +197,7 @@ export function ProviderCard({
                 {provider.provider_type === "anthropic" &&
                   "temp_preferences_custom"}
                 {provider.provider_type === "google" && "auto_awesome"}
+                {provider.provider_type === "volcengine" && "deployed_code"}
                 {provider.provider_type === "custom" && "extension"}
               </span>
             </div>
@@ -215,6 +219,8 @@ export function ProviderCard({
                   "Claude 3.5 Sonnet, Claude 3 Opus, and Haiku for fast processing."}
                 {provider.provider_type === "google" &&
                   "Gemini 1.5 Pro and Flash. Advanced reasoning with massive context windows."}
+                {provider.provider_type === "volcengine" &&
+                  "Volcengine ARK endpoint with official OpenAI Responses API compatibility."}
                 {provider.provider_type === "custom" &&
                   "Custom OpenAI-compatible API endpoint."}
               </p>
@@ -273,7 +279,9 @@ export function ProviderCard({
                       ? "sk-ant-..."
                       : provider.provider_type === "google"
                         ? "AIzaSy..."
-                        : "API Key"
+                        : provider.provider_type === "volcengine"
+                          ? "your_ark_api_key"
+                          : "API Key"
                 }
                 type={showApiKey ? "text" : "password"}
                 value={apiKey}

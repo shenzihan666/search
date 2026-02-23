@@ -9,7 +9,7 @@ AI Quick Search is a Tauri desktop launcher-style app.
 - React frontend with command-palette style UI using shadcn/cmdk.
 - Rust backend with:
   - Windows application search via registry scanning
-  - Placeholder AI streaming response pipeline
+  - Multi-provider AI chat with real API calls (OpenAI, Anthropic, Google, Custom, Volcengine)
 
 ## Development Environment
 
@@ -35,14 +35,20 @@ npm run tauri
 ## Current Codebase Reality (Do Not Assume Missing Parts Exist)
 
 ### Frontend (`src/`)
-- `src/App.tsx`: React Router setup with two routes (`/` and `/settings`).
+- `src/App.tsx`: React Router setup with routes (`/`, `/settings`, `/chat`).
 - `src/pages/Main.tsx`: Main launcher UI.
   - Real-time app search with 150ms debounce via `search_apps` command.
-  - Invokes `query_stream` for AI queries.
-  - Listens to `query:chunk` events for streaming text.
+  - **Tab** key opens multi-model chat with query.
+  - **Multiplier button (1x-4x)** cycles through number of providers to query.
   - Handles `Esc` to hide the window.
-  - Enter launches first app result or submits AI query.
+  - Enter launches first app result.
   - Settings button opens settings window via Tauri Window API.
+- `src/pages/Chat.tsx`: Multi-model chat interface.
+  - Receives query and provider IDs via `chat:init` event.
+  - Dynamic columns (1-4) based on selected providers.
+  - Each column calls `query_provider_once` independently.
+  - No title bar; extends launcher UI style.
+  - ESC hides window; auto-hides on focus loss.
 - `src/pages/Settings.tsx`: Settings page with multi-provider configuration.
   - Uses `useProviders` hook for provider state management.
   - Custom titlebar with minimize, maximize, close controls.
@@ -68,15 +74,22 @@ npm run tauri
   - `repositories/apps.rs`: Apps CRUD, usage tracking, icon storage, JSON migration.
   - `repositories/settings.rs`: Key-value settings with system keyring for API keys.
   - `repositories/providers.rs`: Multi-provider CRUD with API key management.
-- `src-tauri/src/provider/mod.rs`: Provider types, request/response structures.
-- `src-tauri/src/provider/openai.rs`: Connection testing and query integration.
+- `src-tauri/src/provider/mod.rs`: Provider types (OpenAI, Anthropic, Google, Custom, Volcengine).
+- `src-tauri/src/provider/openai.rs`: Provider API integration.
+  - Connection testing for all provider types.
+  - `call_provider_and_get_text()` - Makes real HTTP calls to provider APIs.
+  - Parses responses from OpenAI-compatible, Anthropic, Google, Volcengine formats.
+  - `query_provider_once` - Single provider query returning full text.
+  - `query_stream_provider` - Single provider query with character-by-character streaming.
 - `src-tauri/src/apps/`: Windows application search module.
   - `mod.rs`: Tauri commands (`search_apps`, `launch_app`, `refresh_app_cache`).
   - `scanner.rs`: Registry-based app discovery (Start Menu scanning disabled).
   - `cache.rs`: In-memory cache backed by SQLite database.
 
 ### Exposed Tauri Commands
-- `query_stream(prompt)` - AI query with streaming response
+- `query_stream(prompt)` - AI query with streaming response (uses active provider)
+- `query_provider_once(provider_id, prompt)` - Query specific provider, returns full text
+- `query_stream_provider(provider_id, prompt, app)` - Query specific provider with streaming chunks
 - `set_config(config)` - Set provider configuration (legacy, persists to database + keyring)
 - `get_config()` - Get current provider configuration (legacy, loads from database + keyring)
 - `list_providers()` - List all providers with API key status
@@ -107,10 +120,11 @@ npm run tauri
 
 ## Window Behavior Contract
 
-- App window starts hidden and is toggled by `Alt+Space`.
-- Pressing `Esc` hides the window.
-- Losing focus hides the window.
-- Tray left click or `Show` menu item shows and focuses the window.
+- **Main window**: Starts hidden, toggled by `Alt+Space`.
+- **Chat window**: Opens via Tab key from launcher with query.
+- Pressing `Esc` hides the window (both main and chat).
+- Losing focus hides the window (both main and chat).
+- Tray left click or `Show` menu item shows and focuses the main window.
 
 ## Documentation Policy (docs/)
 
