@@ -9,11 +9,23 @@ import {
   CommandList,
 } from "@/components/ui/command";
 
+interface AppInfo {
+  name: string;
+  path: string;
+  publisher: string | null;
+}
+
+interface SearchResult {
+  app: AppInfo;
+  score: number;
+}
+
 function App() {
   const appWindow = getCurrentWindow();
   const [query, setQuery] = useState("");
   const [response, setResponse] = useState("");
   const [isLoading, setIsLoading] = useState(false);
+  const [appResults, setAppResults] = useState<SearchResult[]>([]);
 
   useEffect(() => {
     // Listen for streaming chunks
@@ -37,6 +49,27 @@ function App() {
     return () => window.removeEventListener("keydown", onKeyDown);
   }, [appWindow]);
 
+  // Debounced app search
+  useEffect(() => {
+    const timer = setTimeout(async () => {
+      if (query.trim().length > 0) {
+        try {
+          const results = await invoke<SearchResult[]>("search_apps", {
+            query,
+          });
+          setAppResults(results);
+        } catch (e) {
+          console.error("App search failed:", e);
+          setAppResults([]);
+        }
+      } else {
+        setAppResults([]);
+      }
+    }, 150);
+
+    return () => clearTimeout(timer);
+  }, [query]);
+
   const handleSubmit = async (value: string) => {
     if (!value.trim() || isLoading) return;
 
@@ -50,6 +83,15 @@ function App() {
       setResponse(`Error: ${error}`);
     } finally {
       setIsLoading(false);
+    }
+  };
+
+  const handleAppSelect = async (app: AppInfo) => {
+    try {
+      await invoke("launch_app", { path: app.path });
+      void appWindow.hide();
+    } catch (e) {
+      console.error("Failed to launch app:", e);
     }
   };
 
@@ -72,7 +114,12 @@ function App() {
                   return;
                 }
                 if (e.key === "Enter") {
-                  handleSubmit(query);
+                  // If there are app results, launch the first one
+                  if (appResults.length > 0) {
+                    void handleAppSelect(appResults[0].app);
+                  } else {
+                    handleSubmit(query);
+                  }
                 }
               }}
               autoFocus
@@ -82,91 +129,71 @@ function App() {
               <CommandList className="max-h-[400px] overflow-y-auto no-scrollbar">
                 <div className="px-5 py-2.5 bg-[#FAFAFA]">
                   <span className="text-[11px] font-semibold text-text-secondary uppercase tracking-[0.05em]">
-                    Suggestions
+                    {appResults.length > 0 ? "Applications" : "Suggestions"}
                   </span>
                 </div>
 
                 <div className="py-1">
-                  <CommandItem
-                    className="w-full flex items-center px-5 py-3.5 hover:bg-[#F9F9F9] transition-all group text-left cursor-pointer data-[selected=true]:bg-[#F9F9F9]"
-                    onSelect={() => handleSubmit("Ask AI Assistant")}
-                  >
-                    <div className="w-9 h-9 rounded bg-black flex items-center justify-center text-white shadow-sm">
-                      <span className="material-symbols-outlined text-[20px]">
-                        auto_awesome
-                      </span>
-                    </div>
-                    <div className="ml-4 flex-1">
-                      <p className="text-[15px] font-medium tracking-tight">
-                        Ask AI Assistant
-                      </p>
-                      <p className="text-[13px] text-text-secondary">
-                        Query multiple LLMs simultaneously
-                      </p>
-                    </div>
-                    <div className="flex items-center gap-2 opacity-0 group-hover:opacity-100 transition-opacity">
-                      <span className="text-[12px] text-text-secondary font-medium">
-                        Open
-                      </span>
-                      <span className="material-symbols-outlined text-text-secondary text-[18px]">
-                        keyboard_return
-                      </span>
-                    </div>
-                  </CommandItem>
+                  {/* App Results */}
+                  {appResults.map((result) => (
+                    <CommandItem
+                      key={result.app.path}
+                      className="w-full flex items-center px-5 py-3.5 hover:bg-[#F9F9F9] transition-all group text-left cursor-pointer data-[selected=true]:bg-[#F9F9F9]"
+                      onSelect={() => handleAppSelect(result.app)}
+                    >
+                      <div className="w-9 h-9 rounded border border-border-gray flex items-center justify-center bg-white">
+                        <span className="material-symbols-outlined text-[20px] text-text-main">
+                          apps
+                        </span>
+                      </div>
+                      <div className="ml-4 flex-1">
+                        <p className="text-[15px] font-medium tracking-tight">
+                          {result.app.name}
+                        </p>
+                        <p className="text-[13px] text-text-secondary">
+                          {result.app.publisher ?? "Application"}
+                        </p>
+                      </div>
+                      <div className="flex items-center gap-2 opacity-0 group-hover:opacity-100 transition-opacity">
+                        <span className="text-[12px] text-text-secondary font-medium">
+                          Open
+                        </span>
+                        <span className="material-symbols-outlined text-text-secondary text-[18px]">
+                          keyboard_return
+                        </span>
+                      </div>
+                    </CommandItem>
+                  ))}
 
-                  <CommandItem
-                    className="w-full flex items-center px-5 py-3.5 hover:bg-[#F9F9F9] transition-all group text-left cursor-pointer data-[selected=true]:bg-[#F9F9F9]"
-                    onSelect={() => handleSubmit("Terminal")}
-                  >
-                    <div className="w-9 h-9 rounded border border-border-gray flex items-center justify-center bg-white">
-                      <span className="material-symbols-outlined text-[20px] text-text-main">
-                        terminal
-                      </span>
-                    </div>
-                    <div className="ml-4 flex-1">
-                      <p className="text-[15px] font-medium tracking-tight">
-                        Terminal
-                      </p>
-                      <p className="text-[13px] text-text-secondary">
-                        Recently opened • Applications
-                      </p>
-                    </div>
-                    <div className="flex items-center gap-2 opacity-0 group-hover:opacity-100 transition-opacity">
-                      <span className="text-[12px] text-text-secondary font-medium">
-                        Open
-                      </span>
-                      <span className="material-symbols-outlined text-text-secondary text-[18px]">
-                        keyboard_return
-                      </span>
-                    </div>
-                  </CommandItem>
-
-                  <CommandItem
-                    className="w-full flex items-center px-5 py-3.5 hover:bg-[#F9F9F9] transition-all group text-left cursor-pointer data-[selected=true]:bg-[#F9F9F9]"
-                    onSelect={() => handleSubmit("Q4 Roadmap.pdf")}
-                  >
-                    <div className="w-9 h-9 rounded border border-border-gray flex items-center justify-center bg-white">
-                      <span className="material-symbols-outlined text-[20px] text-text-main">
-                        description
-                      </span>
-                    </div>
-                    <div className="ml-4 flex-1">
-                      <p className="text-[15px] font-medium tracking-tight">
-                        Q4 Roadmap.pdf
-                      </p>
-                      <p className="text-[13px] text-text-secondary">
-                        Documents • 2MB
-                      </p>
-                    </div>
-                    <div className="flex items-center gap-2 opacity-0 group-hover:opacity-100 transition-opacity">
-                      <span className="text-[12px] text-text-secondary font-medium">
-                        Open
-                      </span>
-                      <span className="material-symbols-outlined text-text-secondary text-[18px]">
-                        keyboard_return
-                      </span>
-                    </div>
-                  </CommandItem>
+                  {/* Ask AI - shown when no app results or as fallback */}
+                  {appResults.length === 0 && (
+                    <CommandItem
+                      className="w-full flex items-center px-5 py-3.5 hover:bg-[#F9F9F9] transition-all group text-left cursor-pointer data-[selected=true]:bg-[#F9F9F9]"
+                      onSelect={() => handleSubmit("Ask AI Assistant")}
+                    >
+                      <div className="w-9 h-9 rounded bg-black flex items-center justify-center text-white shadow-sm">
+                        <span className="material-symbols-outlined text-[20px]">
+                          auto_awesome
+                        </span>
+                      </div>
+                      <div className="ml-4 flex-1">
+                        <p className="text-[15px] font-medium tracking-tight">
+                          Ask AI Assistant
+                        </p>
+                        <p className="text-[13px] text-text-secondary">
+                          Query multiple LLMs simultaneously
+                        </p>
+                      </div>
+                      <div className="flex items-center gap-2 opacity-0 group-hover:opacity-100 transition-opacity">
+                        <span className="text-[12px] text-text-secondary font-medium">
+                          Open
+                        </span>
+                        <span className="material-symbols-outlined text-text-secondary text-[18px]">
+                          keyboard_return
+                        </span>
+                      </div>
+                    </CommandItem>
+                  )}
                 </div>
               </CommandList>
             </div>

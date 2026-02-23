@@ -5,7 +5,9 @@ use tauri::{
 };
 use tauri_plugin_global_shortcut::{GlobalShortcutExt, ShortcutState};
 
+mod apps;
 mod provider;
+use apps::{initialize_cache, launch_app, refresh_app_cache, search_apps};
 use provider::{query_stream, ProviderConfig};
 
 #[tauri::command]
@@ -156,12 +158,20 @@ pub fn run() {
                 }
             });
 
+            // Initialize app cache in background
+            tauri::async_runtime::spawn(async {
+                initialize_cache().await;
+            });
+
             Ok(())
         })
         .invoke_handler(tauri::generate_handler![
             query_stream,
             set_config,
-            get_config
+            get_config,
+            search_apps,
+            launch_app,
+            refresh_app_cache
         ])
         .run(tauri::generate_context!())
         .expect("error while running tauri application");
