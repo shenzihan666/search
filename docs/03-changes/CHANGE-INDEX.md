@@ -1,6 +1,10 @@
 # Change Index
 
 ## 2026
+- `2026-02-23-multi-model-chat`
+  - Status: Completed
+  - Scope: Tab-to-query, embedded chat mode, multiplier button, real API calls to OpenAI/Anthropic/Google/Volcengine/Glm
+  - Archive: `docs/03-changes/2026/2026-02-23-multi-model-chat/`
 - `2026-02-23-multi-provider-crud`
   - Status: Completed
   - Scope: Multi-provider CRUD with database migrations, React hook, connection testing

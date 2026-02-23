@@ -1,5 +1,6 @@
 export type ProviderType =
   | "openai"
+  | "glm"
   | "anthropic"
   | "google"
   | "volcengine"
@@ -65,6 +66,12 @@ export const PROVIDER_TYPE_INFO: Record<
     defaultModel: "gpt-4o-mini",
     defaultBaseUrl: "https://api.openai.com/v1",
     keyUrl: "https://platform.openai.com/api-keys",
+  },
+  glm: {
+    label: "GLM",
+    defaultModel: "glm-4.7",
+    defaultBaseUrl: "https://open.bigmodel.cn/api/paas/v4",
+    keyUrl: "https://open.bigmodel.cn/usercenter/apikeys",
   },
   anthropic: {
     label: "Anthropic",

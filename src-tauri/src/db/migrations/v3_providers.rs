@@ -8,7 +8,7 @@ pub fn up_sql() -> &'static str {
     CREATE TABLE IF NOT EXISTS providers (
         id TEXT PRIMARY KEY,              -- UUID v4
         name TEXT NOT NULL,               -- "OpenAI", "Anthropic", etc.
-        provider_type TEXT NOT NULL,      -- 'openai', 'anthropic', 'google', 'volcengine', 'custom'
+        provider_type TEXT NOT NULL,      -- 'openai', 'glm', 'anthropic', 'google', 'volcengine', 'custom'
         base_url TEXT,                    -- API base URL (optional)
         model TEXT NOT NULL,              -- Default model
         is_active INTEGER NOT NULL DEFAULT 0,
@@ -97,6 +97,7 @@ fn migrate_existing_config(conn: &rusqlite::Connection) -> DbResult<()> {
             .unwrap_or_else(|| "openai".to_string());
         let name = match provider_type.as_str() {
             "openai" => "OpenAI".to_string(),
+            "glm" | "bigmodel" | "zai" | "z.ai" => "GLM".to_string(),
             "anthropic" => "Anthropic".to_string(),
             "google" => "Google".to_string(),
             "volcengine" | "ark" => "Volcengine ARK".to_string(),

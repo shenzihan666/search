@@ -14,6 +14,7 @@ use std::str::FromStr;
 #[serde(rename_all = "lowercase")]
 pub enum ProviderType {
     OpenAI,
+    Glm,
     Anthropic,
     Google,
     Volcengine,
@@ -25,6 +26,7 @@ impl ProviderType {
     pub fn default_base_url(&self) -> Option<&'static str> {
         match self {
             ProviderType::OpenAI => Some("https://api.openai.com/v1"),
+            ProviderType::Glm => Some("https://open.bigmodel.cn/api/paas/v4"),
             ProviderType::Anthropic => Some("https://api.anthropic.com/v1"),
             ProviderType::Google => Some("https://generativelanguage.googleapis.com/v1beta"),
             ProviderType::Volcengine => Some("https://ark.cn-beijing.volces.com/api/v3"),
@@ -36,6 +38,7 @@ impl ProviderType {
     pub fn default_model(&self) -> &'static str {
         match self {
             ProviderType::OpenAI => "gpt-4o-mini",
+            ProviderType::Glm => "glm-4.7",
             ProviderType::Anthropic => "claude-3-5-sonnet-latest",
             ProviderType::Google => "gemini-1.5-pro",
             ProviderType::Volcengine => "deepseek-v3-2-251201",
@@ -48,6 +51,7 @@ impl fmt::Display for ProviderType {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         match self {
             ProviderType::OpenAI => write!(f, "openai"),
+            ProviderType::Glm => write!(f, "glm"),
             ProviderType::Anthropic => write!(f, "anthropic"),
             ProviderType::Google => write!(f, "google"),
             ProviderType::Volcengine => write!(f, "volcengine"),
@@ -62,6 +66,7 @@ impl FromStr for ProviderType {
     fn from_str(s: &str) -> Result<Self, Self::Err> {
         match s.to_lowercase().as_str() {
             "openai" => Ok(ProviderType::OpenAI),
+            "glm" | "bigmodel" | "zai" | "z.ai" => Ok(ProviderType::Glm),
             "anthropic" => Ok(ProviderType::Anthropic),
             "google" | "gemini" => Ok(ProviderType::Google),
             "volcengine" | "ark" | "doubao" => Ok(ProviderType::Volcengine),
@@ -125,6 +130,7 @@ mod tests {
     #[test]
     fn test_provider_type_display() {
         assert_eq!(ProviderType::OpenAI.to_string(), "openai");
+        assert_eq!(ProviderType::Glm.to_string(), "glm");
         assert_eq!(ProviderType::Anthropic.to_string(), "anthropic");
         assert_eq!(ProviderType::Google.to_string(), "google");
         assert_eq!(ProviderType::Volcengine.to_string(), "volcengine");
@@ -137,6 +143,7 @@ mod tests {
             ProviderType::from_str("openai").unwrap(),
             ProviderType::OpenAI
         );
+        assert_eq!(ProviderType::from_str("glm").unwrap(), ProviderType::Glm);
         assert_eq!(
             ProviderType::from_str("ANTHROPIC").unwrap(),
             ProviderType::Anthropic
@@ -162,11 +169,16 @@ mod tests {
             Some("https://api.openai.com/v1")
         );
         assert_eq!(
+            ProviderType::Glm.default_base_url(),
+            Some("https://open.bigmodel.cn/api/paas/v4")
+        );
+        assert_eq!(
             ProviderType::Volcengine.default_base_url(),
             Some("https://ark.cn-beijing.volces.com/api/v3")
         );
         assert_eq!(ProviderType::Custom.default_base_url(), None);
         assert_eq!(ProviderType::OpenAI.default_model(), "gpt-4o-mini");
+        assert_eq!(ProviderType::Glm.default_model(), "glm-4.7");
         assert_eq!(
             ProviderType::Volcengine.default_model(),
             "deepseek-v3-2-251201"

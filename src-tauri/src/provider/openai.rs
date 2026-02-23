@@ -165,7 +165,9 @@ fn parse_responses_text(body: &serde_json::Value) -> Option<String> {
 
 fn parse_stream_delta(provider_type: ProviderType, body: &serde_json::Value) -> Option<String> {
     match provider_type {
-        ProviderType::OpenAI | ProviderType::Custom => parse_openai_delta_text(body),
+        ProviderType::OpenAI | ProviderType::Glm | ProviderType::Custom => {
+            parse_openai_delta_text(body)
+        }
         ProviderType::Volcengine => {
             if body.get("type").and_then(|v| v.as_str()) == Some("response.output_text.delta") {
                 if let Some(delta) = body.get("delta").and_then(|v| v.as_str()) {
@@ -228,7 +230,9 @@ fn parse_google_text(body: &serde_json::Value) -> Option<String> {
 
 fn parse_provider_text(provider_type: ProviderType, body: &serde_json::Value) -> Option<String> {
     match provider_type {
-        ProviderType::OpenAI | ProviderType::Custom => parse_openai_like_text(body),
+        ProviderType::OpenAI | ProviderType::Glm | ProviderType::Custom => {
+            parse_openai_like_text(body)
+        }
         ProviderType::Anthropic => parse_anthropic_text(body),
         ProviderType::Google => parse_google_text(body),
         ProviderType::Volcengine => parse_responses_text(body),
@@ -392,7 +396,7 @@ async fn stream_provider_and_emit(
         .map_err(|e| format!("Failed to create HTTP client: {e}"))?;
 
     let response = match provider.provider_type {
-        ProviderType::OpenAI | ProviderType::Custom => {
+        ProviderType::OpenAI | ProviderType::Glm | ProviderType::Custom => {
             let url = format!("{base_url}/chat/completions");
             client
                 .post(url)
@@ -468,7 +472,7 @@ async fn call_provider_and_get_text(
         .map_err(|e| format!("Failed to create HTTP client: {e}"))?;
 
     let response = match provider.provider_type {
-        ProviderType::OpenAI | ProviderType::Custom => {
+        ProviderType::OpenAI | ProviderType::Glm | ProviderType::Custom => {
             let url = format!("{base_url}/chat/completions");
             client
                 .post(url)
@@ -596,6 +600,19 @@ pub async fn test_provider_connection(id: String) -> Result<ConnectionTestResult
             client
                 .get(url)
                 .header("Authorization", format!("Bearer {}", api_key.trim()))
+                .send()
+                .await
+        }
+        ProviderType::Glm => {
+            let url = format!("{base_url}/chat/completions");
+            client
+                .post(url)
+                .header("Authorization", format!("Bearer {}", api_key.trim()))
+                .json(&serde_json::json!({
+                    "model": provider.model,
+                    "messages": [{ "role": "user", "content": "ping" }],
+                    "max_tokens": 1
+                }))
                 .send()
                 .await
         }

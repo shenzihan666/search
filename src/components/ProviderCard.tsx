@@ -32,6 +32,11 @@ const PROVIDER_ICONS: Record<
   { bg: string; border?: string; iconColor: string }
 > = {
   openai: { bg: "bg-black", iconColor: "text-white" },
+  glm: {
+    bg: "bg-emerald-50",
+    border: "border-emerald-100",
+    iconColor: "text-emerald-700",
+  },
   anthropic: {
     bg: "bg-amber-50",
     border: "border-amber-100",
@@ -194,6 +199,7 @@ export function ProviderCard({
                 className={`material-symbols-outlined ${iconStyle.iconColor} text-2xl`}
               >
                 {provider.provider_type === "openai" && "bolt"}
+                {provider.provider_type === "glm" && "model_training"}
                 {provider.provider_type === "anthropic" &&
                   "temp_preferences_custom"}
                 {provider.provider_type === "google" && "auto_awesome"}
@@ -215,6 +221,8 @@ export function ProviderCard({
               <p className="text-xs text-text-secondary mt-1">
                 {provider.provider_type === "openai" &&
                   "Supports GPT-4o, GPT-4 Turbo, and specialized embedding models."}
+                {provider.provider_type === "glm" &&
+                  "Official Zhipu BigModel API endpoint for GLM family models."}
                 {provider.provider_type === "anthropic" &&
                   "Claude 3.5 Sonnet, Claude 3 Opus, and Haiku for fast processing."}
                 {provider.provider_type === "google" &&
@@ -275,13 +283,15 @@ export function ProviderCard({
                 placeholder={
                   provider.provider_type === "openai"
                     ? "sk-..."
-                    : provider.provider_type === "anthropic"
-                      ? "sk-ant-..."
-                      : provider.provider_type === "google"
-                        ? "AIzaSy..."
-                        : provider.provider_type === "volcengine"
-                          ? "your_ark_api_key"
-                          : "API Key"
+                    : provider.provider_type === "glm"
+                      ? "your_glm_api_key"
+                      : provider.provider_type === "anthropic"
+                        ? "sk-ant-..."
+                        : provider.provider_type === "google"
+                          ? "AIzaSy..."
+                          : provider.provider_type === "volcengine"
+                            ? "your_ark_api_key"
+                            : "API Key"
                 }
                 type={showApiKey ? "text" : "password"}
                 value={apiKey}
