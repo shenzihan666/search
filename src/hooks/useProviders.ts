@@ -105,11 +105,7 @@ export function useProviders() {
   const setActiveProvider = useCallback(
     async (id: string, isActive: boolean): Promise<void> => {
       try {
-        await invoke("set_active_provider", {
-          id,
-          isActive,
-          is_active: isActive,
-        });
+        await invoke("set_active_provider", { id, isActive });
         await loadProviders();
       } catch (err) {
         console.error("Failed to set active provider:", err);
@@ -133,13 +129,7 @@ export function useProviders() {
     async (id: string, apiKey: string): Promise<void> => {
       try {
         await withTimeout(
-          invoke("set_provider_api_key", {
-            id,
-            // Tauri command args are usually camelCase on the JS side.
-            // Keep both keys for compatibility across command arg rename modes.
-            apiKey,
-            api_key: apiKey,
-          }),
+          invoke("set_provider_api_key", { id, apiKey }),
           10000,
           "set_provider_api_key",
         );

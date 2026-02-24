@@ -1,5 +1,5 @@
 import { getCurrentWindow } from "@tauri-apps/api/window";
-import { useEffect, useState } from "react";
+import { useCallback, useEffect, useRef, useState } from "react";
 import { ProviderCard } from "@/components/ProviderCard";
 import {
   Dialog,
@@ -11,8 +11,21 @@ import {
   DialogTrigger,
 } from "@/components/ui/dialog";
 import { useProviders } from "@/hooks/useProviders";
+import {
+  type AppSettings,
+  AppSettingsApi,
+  DEFAULT_APP_SETTINGS,
+  type SettingKey,
+} from "@/lib/appSettings";
 import type { ProviderType } from "@/types/provider";
 import { PROVIDER_TYPE_INFO } from "@/types/provider";
+
+type RecordingTarget = "toggle" | "open-settings" | null;
+type SettingsToast = {
+  id: number;
+  message: string;
+  detail?: string;
+};
 
 export default function Settings() {
   const [activeTab, setActiveTab] = useState("llm-models");
@@ -25,6 +38,22 @@ export default function Settings() {
   const [newProviderShowApiKey, setNewProviderShowApiKey] = useState(false);
   const [newProviderModel, setNewProviderModel] = useState("");
   const [isCreatingProvider, setIsCreatingProvider] = useState(false);
+  const [appSettings, setAppSettings] =
+    useState<AppSettings>(DEFAULT_APP_SETTINGS);
+  const [toggleHotkeyDraft, setToggleHotkeyDraft] = useState(
+    DEFAULT_APP_SETTINGS.hotkeyToggleSearch,
+  );
+  const [openSettingsHotkeyDraft, setOpenSettingsHotkeyDraft] = useState(
+    DEFAULT_APP_SETTINGS.hotkeyOpenSettings,
+  );
+  const [defaultSystemPromptDraft, setDefaultSystemPromptDraft] = useState(
+    DEFAULT_APP_SETTINGS.defaultSystemPrompt,
+  );
+  const [recordingTarget, setRecordingTarget] = useState<RecordingTarget>(null);
+  const [hotkeyRecordHint, setHotkeyRecordHint] = useState<string | null>(null);
+  const [isLoadingAppSettings, setIsLoadingAppSettings] = useState(true);
+  const [toast, setToast] = useState<SettingsToast | null>(null);
+  const toastTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
 
   const {
     providers,
@@ -39,9 +68,353 @@ export default function Settings() {
   } = useProviders();
 
   useEffect(() => {
-    const appWindow = getCurrentWindow();
-    appWindow.show();
+    let cancelled = false;
+    void (async () => {
+      const appWindow = getCurrentWindow();
+      await appWindow.show();
+      try {
+        const settings = await AppSettingsApi.getAll();
+        if (!cancelled) {
+          setAppSettings(settings);
+          setToggleHotkeyDraft(settings.hotkeyToggleSearch);
+          setOpenSettingsHotkeyDraft(settings.hotkeyOpenSettings);
+          setDefaultSystemPromptDraft(settings.defaultSystemPrompt);
+        }
+      } catch (error) {
+        console.error("Failed to load app settings:", error);
+      } finally {
+        if (!cancelled) {
+          setIsLoadingAppSettings(false);
+        }
+      }
+    })();
+    return () => {
+      cancelled = true;
+    };
   }, []);
+
+  useEffect(
+    () => () => {
+      if (toastTimerRef.current) {
+        clearTimeout(toastTimerRef.current);
+      }
+    },
+    [],
+  );
+
+  const pushToast = (message: string, detail?: string) => {
+    if (toastTimerRef.current) clearTimeout(toastTimerRef.current);
+    setToast({ id: Date.now(), message, detail });
+    toastTimerRef.current = setTimeout(() => {
+      setToast(null);
+      toastTimerRef.current = null;
+    }, 3200);
+  };
+
+  const mapSettingErrorToToast = (key: SettingKey, error: unknown) => {
+    const raw = error instanceof Error ? error.message : String(error);
+    const isHotkey =
+      key === "hotkey_toggle_search" || key === "hotkey_open_settings";
+
+    if (isHotkey) {
+      if (
+        /already registered|already in use|hotkey already|accelerator/i.test(
+          raw,
+        )
+      ) {
+        return {
+          message:
+            "That hotkey is already registered or claimed by the system. Please pick a different shortcut.",
+        };
+      }
+      if (/invalid|unsupported|empty token|parse|format/i.test(raw)) {
+        return {
+          message: "Hotkey format is invalid.",
+          detail: "Include at least one modifier (Ctrl, Alt, Shift, or Cmd).",
+        };
+      }
+      return {
+        message: "Failed to save the hotkey. Try again.",
+        detail: raw,
+      };
+    }
+
+    return {
+      message: "Failed to save the setting. Please try again.",
+      detail: raw,
+    };
+  };
+  const setSettingWithRollback = (
+    key: SettingKey,
+    value: string,
+    rollback: () => void,
+    onNormalized?: (normalized: string) => void,
+  ) => {
+    void AppSettingsApi.set(key, value)
+      .then((normalized) => {
+        onNormalized?.(normalized);
+      })
+      .catch((error) => {
+        console.error(`Failed to persist setting '${key}':`, error);
+        rollback();
+        const toastContent = mapSettingErrorToToast(key, error);
+        pushToast(toastContent.message, toastContent.detail);
+      });
+  };
+
+  const toBool = (value: string) => {
+    const normalized = value.trim().toLowerCase();
+    return normalized === "1" || normalized === "true" || normalized === "yes";
+  };
+
+  const handleLaunchOnStartupChange = (checked: boolean) => {
+    const previous = appSettings.launchOnStartup;
+    setAppSettings((prev) => ({ ...prev, launchOnStartup: checked }));
+    setSettingWithRollback(
+      "launch_on_startup",
+      checked ? "1" : "0",
+      () => setAppSettings((prev) => ({ ...prev, launchOnStartup: previous })),
+      (normalized) =>
+        setAppSettings((prev) => ({
+          ...prev,
+          launchOnStartup: toBool(normalized),
+        })),
+    );
+  };
+
+  const handleHideOnBlurChange = (checked: boolean) => {
+    const previous = appSettings.hideOnBlur;
+    setAppSettings((prev) => ({ ...prev, hideOnBlur: checked }));
+    setSettingWithRollback("hide_on_blur", checked ? "1" : "0", () =>
+      setAppSettings((prev) => ({ ...prev, hideOnBlur: previous })),
+    );
+  };
+
+  const handleThemeChange = (theme: "light" | "dark" | "system") => {
+    const previous = appSettings.theme;
+    setAppSettings((prev) => ({ ...prev, theme }));
+    setSettingWithRollback("theme", theme, () =>
+      setAppSettings((prev) => ({ ...prev, theme: previous })),
+    );
+  };
+
+  // biome-ignore lint/correctness/useExhaustiveDependencies: setSettingWithRollback is functionally stable
+  const saveToggleHotkey = useCallback(
+    (candidate?: string) => {
+      const next = (candidate ?? toggleHotkeyDraft).trim();
+      const previous = appSettings.hotkeyToggleSearch;
+      if (!next || next === previous) {
+        setToggleHotkeyDraft(previous);
+        return;
+      }
+      setAppSettings((prev) => ({ ...prev, hotkeyToggleSearch: next }));
+      setSettingWithRollback(
+        "hotkey_toggle_search",
+        next,
+        () => {
+          setAppSettings((prev) => ({ ...prev, hotkeyToggleSearch: previous }));
+          setToggleHotkeyDraft(previous);
+        },
+        (normalized) => {
+          setAppSettings((prev) => ({
+            ...prev,
+            hotkeyToggleSearch: normalized,
+          }));
+          setToggleHotkeyDraft(normalized);
+        },
+      );
+    },
+    [toggleHotkeyDraft, appSettings.hotkeyToggleSearch],
+  );
+
+  // biome-ignore lint/correctness/useExhaustiveDependencies: setSettingWithRollback is functionally stable
+  const saveOpenSettingsHotkey = useCallback(
+    (candidate?: string) => {
+      const next = (candidate ?? openSettingsHotkeyDraft).trim();
+      const previous = appSettings.hotkeyOpenSettings;
+      if (!next || next === previous) {
+        setOpenSettingsHotkeyDraft(previous);
+        return;
+      }
+      setAppSettings((prev) => ({ ...prev, hotkeyOpenSettings: next }));
+      setSettingWithRollback(
+        "hotkey_open_settings",
+        next,
+        () => {
+          setAppSettings((prev) => ({ ...prev, hotkeyOpenSettings: previous }));
+          setOpenSettingsHotkeyDraft(previous);
+        },
+        (normalized) => {
+          setAppSettings((prev) => ({
+            ...prev,
+            hotkeyOpenSettings: normalized,
+          }));
+          setOpenSettingsHotkeyDraft(normalized);
+        },
+      );
+    },
+    [openSettingsHotkeyDraft, appSettings.hotkeyOpenSettings],
+  );
+
+  const saveDefaultSystemPrompt = () => {
+    const next = defaultSystemPromptDraft.trim();
+    const previous = appSettings.defaultSystemPrompt;
+    if (next === previous) return;
+    setAppSettings((prev) => ({ ...prev, defaultSystemPrompt: next }));
+    setSettingWithRollback(
+      "default_system_prompt",
+      next,
+      () => {
+        setAppSettings((prev) => ({ ...prev, defaultSystemPrompt: previous }));
+        setDefaultSystemPromptDraft(previous);
+      },
+      (normalized) => {
+        setAppSettings((prev) => ({
+          ...prev,
+          defaultSystemPrompt: normalized,
+        }));
+        setDefaultSystemPromptDraft(normalized);
+      },
+    );
+  };
+
+  const getThemeCardClass = (theme: "light" | "dark" | "system") =>
+    `flex flex-col items-center gap-2 p-4 border-2 rounded-lg bg-white ${
+      appSettings.theme === theme
+        ? "border-black"
+        : "border-transparent hover:border-gray-200"
+    }`;
+
+  const formatRecordedKey = useCallback((event: KeyboardEvent) => {
+    const key = event.key;
+    const code = event.code;
+
+    if (
+      key === "Control" ||
+      key === "Shift" ||
+      key === "Alt" ||
+      key === "Meta"
+    ) {
+      return null;
+    }
+
+    if (/^F([1-9]|1[0-9]|2[0-4])$/.test(key)) return key.toUpperCase();
+    if (key === " ") return "Space";
+    if (key === "Escape") return "Esc";
+    if (key === "ArrowUp") return "Up";
+    if (key === "ArrowDown") return "Down";
+    if (key === "ArrowLeft") return "Left";
+    if (key === "ArrowRight") return "Right";
+    if (key === "PageUp") return "PageUp";
+    if (key === "PageDown") return "PageDown";
+    if (key === "Backspace") return "Backspace";
+    if (key === "Delete") return "Delete";
+    if (key === "Enter") return "Enter";
+    if (key === "Tab") return "Tab";
+    if (key === "Home") return "Home";
+    if (key === "End") return "End";
+
+    if (key === ",") return ",";
+    if (key === ".") return ".";
+    if (key === ";") return ";";
+    if (key === "'") return "'";
+    if (key === "/") return "/";
+    if (key === "\\") return "\\";
+    if (key === "[") return "[";
+    if (key === "]") return "]";
+    if (key === "`") return "`";
+    if (key === "-") return "-";
+    if (key === "=") return "=";
+
+    if (code.startsWith("Key") && code.length === 4) {
+      return code.slice(3).toUpperCase();
+    }
+    if (code.startsWith("Digit") && code.length === 6) {
+      return code.slice(5);
+    }
+    if (/^[a-zA-Z0-9]$/.test(key)) return key.toUpperCase();
+
+    return null;
+  }, []);
+
+  useEffect(() => {
+    if (!recordingTarget) return;
+    let completed = false;
+    let altPressed = false;
+    let ctrlPressed = false;
+    let shiftPressed = false;
+    let metaPressed = false;
+
+    const commitCombo = (combo: string) => {
+      if (completed) return;
+      completed = true;
+      if (recordingTarget === "toggle") {
+        setToggleHotkeyDraft(combo);
+        saveToggleHotkey(combo);
+      } else {
+        setOpenSettingsHotkeyDraft(combo);
+        saveOpenSettingsHotkey(combo);
+      }
+      setHotkeyRecordHint(null);
+      setRecordingTarget(null);
+    };
+
+    const onKeyEvent = (event: KeyboardEvent) => {
+      event.preventDefault();
+      event.stopPropagation();
+      event.stopImmediatePropagation();
+      if (event.type === "keydown" && event.repeat) return;
+
+      if (event.key === "Alt") altPressed = event.type === "keydown";
+      if (event.key === "Control") ctrlPressed = event.type === "keydown";
+      if (event.key === "Shift") shiftPressed = event.type === "keydown";
+      if (event.key === "Meta") metaPressed = event.type === "keydown";
+
+      if (event.key === "Escape") {
+        completed = true;
+        setRecordingTarget(null);
+        setHotkeyRecordHint(null);
+        return;
+      }
+
+      if (event.key === " " && (event.altKey || altPressed)) {
+        commitCombo("Alt + Space");
+        void getCurrentWindow()
+          .setFocus()
+          .catch(() => {});
+        return;
+      }
+
+      const mainKey = formatRecordedKey(event);
+      if (!mainKey) return;
+
+      const parts: string[] = [];
+      if (event.ctrlKey || ctrlPressed) parts.push("Ctrl");
+      if (event.altKey || altPressed) parts.push("Alt");
+      if (event.shiftKey || shiftPressed) parts.push("Shift");
+      if (event.metaKey || metaPressed) parts.push("Cmd");
+      parts.push(mainKey);
+
+      if (parts.length < 2) {
+        setHotkeyRecordHint("Shortcut must include at least one modifier key.");
+        return;
+      }
+
+      commitCombo(parts.join(" + "));
+    };
+
+    window.addEventListener("keydown", onKeyEvent, true);
+    window.addEventListener("keyup", onKeyEvent, true);
+    return () => {
+      window.removeEventListener("keydown", onKeyEvent, true);
+      window.removeEventListener("keyup", onKeyEvent, true);
+    };
+  }, [
+    recordingTarget,
+    saveToggleHotkey,
+    saveOpenSettingsHotkey,
+    formatRecordedKey,
+  ]);
 
   const handleCreateProvider = async () => {
     setIsCreatingProvider(true);
@@ -110,7 +483,11 @@ export default function Settings() {
                       <input
                         type="checkbox"
                         className="sr-only peer"
-                        defaultChecked
+                        checked={appSettings.launchOnStartup}
+                        disabled={isLoadingAppSettings}
+                        onChange={(e) =>
+                          handleLaunchOnStartupChange(e.target.checked)
+                        }
                       />
                       <div className="w-9 h-5 bg-gray-200 peer-focus:outline-none rounded-full peer peer-checked:after:translate-x-full peer-checked:after:border-white after:content-[''] after:absolute after:top-[2px] after:left-[2px] after:bg-white after:border-gray-300 after:border after:rounded-full after:h-4 after:w-4 after:transition-all peer-checked:bg-black"></div>
                     </label>
@@ -127,10 +504,41 @@ export default function Settings() {
                       <input
                         type="checkbox"
                         className="sr-only peer"
-                        defaultChecked
+                        checked={appSettings.hideOnBlur}
+                        disabled={isLoadingAppSettings}
+                        onChange={(e) =>
+                          handleHideOnBlurChange(e.target.checked)
+                        }
                       />
                       <div className="w-9 h-5 bg-gray-200 peer-focus:outline-none rounded-full peer peer-checked:after:translate-x-full peer-checked:after:border-white after:content-[''] after:absolute after:top-[2px] after:left-[2px] after:bg-white after:border-gray-300 after:border after:rounded-full after:h-4 after:w-4 after:transition-all peer-checked:bg-black"></div>
                     </label>
+                  </div>
+                  <div className="h-px bg-border-gray w-full"></div>
+                  <div>
+                    <h3 className="text-sm font-bold">Default System Prompt</h3>
+                    <p className="text-xs text-text-secondary mt-1 mb-3">
+                      Used as fallback when current session has no custom system
+                      prompt.
+                    </p>
+                    <textarea
+                      rows={4}
+                      value={defaultSystemPromptDraft}
+                      disabled={isLoadingAppSettings}
+                      onChange={(e) =>
+                        setDefaultSystemPromptDraft(e.target.value)
+                      }
+                      className="w-full text-[12px] px-3 py-2 rounded-md border border-border-gray bg-white outline-none focus:border-black/40 resize-y transition-colors"
+                      placeholder="e.g. You are a concise technical expert. Reply in the same language as the user."
+                    />
+                    <div className="mt-2 flex justify-end">
+                      <button
+                        type="button"
+                        onClick={saveDefaultSystemPrompt}
+                        className="px-3 py-1.5 bg-black text-white text-xs font-medium rounded-md hover:bg-neutral-800 transition-colors"
+                      >
+                        Save Prompt
+                      </button>
+                    </div>
                   </div>
                 </div>
               </div>
@@ -168,12 +576,32 @@ export default function Settings() {
                         interface.
                       </p>
                     </div>
-                    <button
-                      type="button"
-                      className="px-3 py-1.5 bg-gray-100 border border-border-gray rounded-md text-xs font-mono font-medium text-gray-700 hover:bg-gray-200 transition-colors"
-                    >
-                      Alt + Space
-                    </button>
+                    <div className="flex items-center gap-2">
+                      <input
+                        type="text"
+                        value={toggleHotkeyDraft}
+                        readOnly
+                        className="w-[160px] px-3 py-1.5 bg-gray-100 border border-border-gray rounded-md text-xs font-mono font-medium text-gray-700 focus:outline-none focus:border-black/40"
+                        placeholder="Alt + Space"
+                      />
+                      <button
+                        type="button"
+                        disabled={isLoadingAppSettings}
+                        onClick={() => {
+                          setHotkeyRecordHint(null);
+                          setRecordingTarget((prev) =>
+                            prev === "toggle" ? null : "toggle",
+                          );
+                        }}
+                        className={`px-3 py-1.5 text-xs font-medium rounded-md transition-colors ${
+                          recordingTarget === "toggle"
+                            ? "bg-red-600 text-white hover:bg-red-700"
+                            : "bg-black text-white hover:bg-neutral-800"
+                        }`}
+                      >
+                        {recordingTarget === "toggle" ? "Cancel" : "Record"}
+                      </button>
+                    </div>
                   </div>
                   <div className="h-px bg-border-gray w-full"></div>
                   <div className="flex items-center justify-between">
@@ -183,12 +611,61 @@ export default function Settings() {
                         Shortcut to open this settings window.
                       </p>
                     </div>
-                    <button
-                      type="button"
-                      className="px-3 py-1.5 bg-gray-100 border border-border-gray rounded-md text-xs font-mono font-medium text-gray-700 hover:bg-gray-200 transition-colors"
-                    >
-                      Ctrl + ,
-                    </button>
+                    <div className="flex items-center gap-2">
+                      <input
+                        type="text"
+                        value={openSettingsHotkeyDraft}
+                        readOnly
+                        className="w-[160px] px-3 py-1.5 bg-gray-100 border border-border-gray rounded-md text-xs font-mono font-medium text-gray-700 focus:outline-none focus:border-black/40"
+                        placeholder="Ctrl + ,"
+                      />
+                      <button
+                        type="button"
+                        disabled={isLoadingAppSettings}
+                        onClick={() => {
+                          setHotkeyRecordHint(null);
+                          setRecordingTarget((prev) =>
+                            prev === "open-settings" ? null : "open-settings",
+                          );
+                        }}
+                        className={`px-3 py-1.5 text-xs font-medium rounded-md transition-colors ${
+                          recordingTarget === "open-settings"
+                            ? "bg-red-600 text-white hover:bg-red-700"
+                            : "bg-black text-white hover:bg-neutral-800"
+                        }`}
+                      >
+                        {recordingTarget === "open-settings"
+                          ? "Cancel"
+                          : "Record"}
+                      </button>
+                    </div>
+                  </div>
+                  <div className="h-px bg-border-gray w-full"></div>
+                  <div className="text-xs text-text-secondary">
+                    {recordingTarget
+                      ? "Recording... press your shortcut now, or Esc to cancel."
+                      : "Click Record and press the full shortcut combination."}
+                    {recordingTarget === "toggle" && (
+                      <div className="mt-2">
+                        <button
+                          type="button"
+                          onClick={() => {
+                            setToggleHotkeyDraft("Alt + Space");
+                            saveToggleHotkey("Alt + Space");
+                            setRecordingTarget(null);
+                            setHotkeyRecordHint(null);
+                          }}
+                          className="px-2.5 py-1 rounded-md border border-border-gray bg-white text-[11px] font-medium text-text-secondary hover:border-black/30 hover:text-black transition-colors"
+                        >
+                          Set Alt + Space
+                        </button>
+                      </div>
+                    )}
+                    {hotkeyRecordHint && (
+                      <span className="block mt-1 text-red-600">
+                        {hotkeyRecordHint}
+                      </span>
+                    )}
                   </div>
                 </div>
               </div>
@@ -221,7 +698,8 @@ export default function Settings() {
                     <div className="grid grid-cols-3 gap-4">
                       <button
                         type="button"
-                        className="flex flex-col items-center gap-2 p-4 border-2 border-black rounded-lg bg-white"
+                        className={getThemeCardClass("light")}
+                        onClick={() => handleThemeChange("light")}
                       >
                         <div className="w-full h-20 bg-gray-100 rounded-md border border-gray-200 flex items-center justify-center">
                           <span className="material-symbols-outlined text-gray-400">
@@ -232,7 +710,8 @@ export default function Settings() {
                       </button>
                       <button
                         type="button"
-                        className="flex flex-col items-center gap-2 p-4 border-2 border-transparent hover:border-gray-200 rounded-lg bg-white"
+                        className={getThemeCardClass("dark")}
+                        onClick={() => handleThemeChange("dark")}
                       >
                         <div className="w-full h-20 bg-gray-900 rounded-md border border-gray-800 flex items-center justify-center">
                           <span className="material-symbols-outlined text-gray-400">
@@ -243,7 +722,8 @@ export default function Settings() {
                       </button>
                       <button
                         type="button"
-                        className="flex flex-col items-center gap-2 p-4 border-2 border-transparent hover:border-gray-200 rounded-lg bg-white"
+                        className={getThemeCardClass("system")}
+                        onClick={() => handleThemeChange("system")}
                       >
                         <div className="w-full h-20 bg-gradient-to-br from-gray-100 to-gray-900 rounded-md border border-gray-300 flex items-center justify-center">
                           <span className="material-symbols-outlined text-gray-400">
@@ -684,6 +1164,28 @@ export default function Settings() {
           {renderTabContent()}
         </main>
       </div>
+
+      {toast && (
+        <div className="fixed right-6 bottom-6 z-[120] pointer-events-none">
+          <div className="max-w-[420px] min-w-[300px] rounded-xl border border-border-gray bg-white shadow-2xl px-4 py-3">
+            <div className="flex items-start gap-2.5">
+              <span className="material-symbols-outlined text-[18px] text-red-500 mt-[1px]">
+                warning
+              </span>
+              <div className="min-w-0">
+                <p className="text-[13px] font-semibold text-black leading-5">
+                  {toast.message}
+                </p>
+                {toast.detail && (
+                  <p className="text-[11px] text-text-secondary mt-1 break-all leading-4">
+                    {toast.detail}
+                  </p>
+                )}
+              </div>
+            </div>
+          </div>
+        </div>
+      )}
     </div>
   );
 }

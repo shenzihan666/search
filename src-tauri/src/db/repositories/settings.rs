@@ -42,6 +42,17 @@ impl SettingsRepository {
         })
     }
 
+    /// Set a setting value only if the key does not exist yet.
+    pub fn set_if_absent(key: &str, value: &str) -> DbResult<()> {
+        connection::with_connection(|conn| {
+            conn.execute(
+                "INSERT OR IGNORE INTO settings (key, value, updated_at) VALUES (?1, ?2, ?3)",
+                rusqlite::params![key, value, now_unix_ms()],
+            )?;
+            Ok(())
+        })
+    }
+
     /// Delete a setting.
     #[allow(dead_code)]
     pub fn delete(key: &str) -> DbResult<()> {

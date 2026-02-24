@@ -17,4 +17,7 @@ pub fn initialize(app: &AppHandle) -> DbResult<()> {
     connection::initialize(db_path)
 }
 
-pub use repositories::{AppsRepository, ProvidersRepository, SettingsRepository};
+pub use repositories::{
+    AppsRepository, ChatMessageRecord, ChatMessagesRepository, ChatSessionRecord,
+    ChatSessionsRepository, MessageSearchResult, ProvidersRepository, SettingsRepository,
+};

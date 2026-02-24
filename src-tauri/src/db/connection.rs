@@ -56,6 +56,8 @@ where
         .as_ref()
         .ok_or_else(|| DbError::Connection("Database not initialized".to_string()))?;
 
+    // Important: do not call repository methods that re-enter with_connection
+    // from inside this closure. std::sync::Mutex is not re-entrant.
     f(conn)
 }
 

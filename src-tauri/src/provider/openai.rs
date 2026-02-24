@@ -22,6 +22,12 @@ pub struct ConnectionTestResult {
     pub latency_ms: u64,
 }
 
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct ProviderChatMessage {
+    pub role: String,
+    pub content: String,
+}
+
 impl ConnectionTestResult {
     fn success(status_code: Option<u16>, latency_ms: u64, message: String) -> Self {
         Self {
@@ -239,6 +245,48 @@ fn parse_provider_text(provider_type: ProviderType, body: &serde_json::Value) ->
     }
 }
 
+fn role_for_google(role: &str) -> &'static str {
+    match role {
+        "assistant" => "model",
+        _ => "user",
+    }
+}
+
+fn normalize_messages(
+    history: Option<Vec<ProviderChatMessage>>,
+    prompt: &str,
+) -> Result<Vec<ProviderChatMessage>, String> {
+    let mut messages = history
+        .unwrap_or_default()
+        .into_iter()
+        .filter_map(|m| {
+            let role = m.role.trim().to_lowercase();
+            let content = m.content.trim().to_string();
+            if content.is_empty() {
+                return None;
+            }
+            if role != "user" && role != "assistant" && role != "system" {
+                return None;
+            }
+            Some(ProviderChatMessage { role, content })
+        })
+        .collect::<Vec<_>>();
+
+    let has_user_msg = messages.iter().any(|m| m.role == "user");
+    if !has_user_msg {
+        let normalized_prompt = prompt.trim();
+        if normalized_prompt.is_empty() {
+            return Err("Prompt is empty.".to_string());
+        }
+        messages.push(ProviderChatMessage {
+            role: "user".to_string(),
+            content: normalized_prompt.to_string(),
+        });
+    }
+
+    Ok(messages)
+}
+
 fn take_sse_frames(buffer: &mut String) -> Vec<String> {
     let mut frames = Vec::new();
 
@@ -373,22 +421,17 @@ async fn stream_provider_and_emit(
     event_name: &str,
     provider: &Provider,
     api_key: &str,
-    prompt: &str,
+    messages: &[ProviderChatMessage],
 ) -> Result<usize, String> {
     if api_key.trim().is_empty() {
         return Err("API key is empty.".to_string());
     }
-    if prompt.trim().is_empty() {
-        return Err("Prompt is empty.".to_string());
+    if messages.is_empty() {
+        return Err("Messages are empty.".to_string());
     }
 
     let base_url = resolve_base_url(provider)
         .ok_or_else(|| "Base URL is empty. Configure provider base URL.".to_string())?;
-
-    // Google path currently uses non-stream fallback in this app.
-    if provider.provider_type == ProviderType::Google {
-        return Ok(0);
-    }
 
     let client = reqwest::Client::builder()
         .timeout(Duration::from_secs(120))
@@ -403,7 +446,7 @@ async fn stream_provider_and_emit(
                 .header("Authorization", format!("Bearer {}", api_key.trim()))
                 .json(&serde_json::json!({
                     "model": provider.model,
-                    "messages": [{ "role": "user", "content": prompt }],
+                    "messages": messages,
                     "temperature": 0.7,
                     "stream": true
                 }))
@@ -417,7 +460,7 @@ async fn stream_provider_and_emit(
                 .header("Authorization", format!("Bearer {}", api_key.trim()))
                 .json(&serde_json::json!({
                     "model": provider.model,
-                    "input": [{ "role": "user", "content": prompt }],
+                    "input": messages,
                     "stream": true
                 }))
                 .send()
@@ -431,14 +474,34 @@ async fn stream_provider_and_emit(
                 .header("anthropic-version", "2023-06-01")
                 .json(&serde_json::json!({
                     "model": provider.model,
-                    "max_tokens": 512,
-                    "messages": [{ "role": "user", "content": prompt }],
+                    "max_tokens": 4096,
+                    "messages": messages,
                     "stream": true
                 }))
                 .send()
                 .await
         }
-        ProviderType::Google => unreachable!(),
+        ProviderType::Google => {
+            let url = format!("{base_url}/models/{}:streamGenerateContent", provider.model);
+            let contents = messages
+                .iter()
+                .map(|msg| {
+                    serde_json::json!({
+                        "role": role_for_google(&msg.role),
+                        "parts": [{ "text": msg.content }]
+                    })
+                })
+                .collect::<Vec<_>>();
+            client
+                .post(url)
+                .query(&[("key", api_key.trim()), ("alt", "sse")])
+                .json(&serde_json::json!({
+                    "contents": contents,
+                    "generationConfig": { "maxOutputTokens": 4096 }
+                }))
+                .send()
+                .await
+        }
     }
     .map_err(|e| format!("Network error: {e}"))?;
 
@@ -454,13 +517,13 @@ async fn stream_provider_and_emit(
 async fn call_provider_and_get_text(
     provider: &Provider,
     api_key: &str,
-    prompt: &str,
+    messages: &[ProviderChatMessage],
 ) -> Result<String, String> {
     if api_key.trim().is_empty() {
         return Err("API key is empty.".to_string());
     }
-    if prompt.trim().is_empty() {
-        return Err("Prompt is empty.".to_string());
+    if messages.is_empty() {
+        return Err("Messages are empty.".to_string());
     }
 
     let base_url = resolve_base_url(provider)
@@ -479,7 +542,7 @@ async fn call_provider_and_get_text(
                 .header("Authorization", format!("Bearer {}", api_key.trim()))
                 .json(&serde_json::json!({
                     "model": provider.model,
-                    "messages": [{ "role": "user", "content": prompt }],
+                    "messages": messages,
                     "temperature": 0.7
                 }))
                 .send()
@@ -492,8 +555,8 @@ async fn call_provider_and_get_text(
                 .header("Authorization", format!("Bearer {}", api_key.trim()))
                 .json(&serde_json::json!({
                     "model": provider.model,
-                    "input": [{ "role": "user", "content": prompt }],
-                    "max_output_tokens": 512
+                    "input": messages,
+                    "max_output_tokens": 4096
                 }))
                 .send()
                 .await
@@ -506,20 +569,29 @@ async fn call_provider_and_get_text(
                 .header("anthropic-version", "2023-06-01")
                 .json(&serde_json::json!({
                     "model": provider.model,
-                    "max_tokens": 512,
-                    "messages": [{ "role": "user", "content": prompt }]
+                    "max_tokens": 4096,
+                    "messages": messages
                 }))
                 .send()
                 .await
         }
         ProviderType::Google => {
             let url = format!("{base_url}/models/{}:generateContent", provider.model);
+            let contents = messages
+                .iter()
+                .map(|msg| {
+                    serde_json::json!({
+                        "role": role_for_google(&msg.role),
+                        "parts": [{ "text": msg.content }]
+                    })
+                })
+                .collect::<Vec<_>>();
             client
                 .post(url)
                 .query(&[("key", api_key.trim())])
                 .json(&serde_json::json!({
-                    "contents": [{ "parts": [{ "text": prompt }] }],
-                    "generationConfig": { "maxOutputTokens": 512 }
+                    "contents": contents,
+                    "generationConfig": { "maxOutputTokens": 4096 }
                 }))
                 .send()
                 .await
@@ -611,7 +683,7 @@ pub async fn test_provider_connection(id: String) -> Result<ConnectionTestResult
                 .json(&serde_json::json!({
                     "model": provider.model,
                     "messages": [{ "role": "user", "content": "ping" }],
-                    "max_tokens": 1
+                    "max_tokens": 8
                 }))
                 .send()
                 .await
@@ -686,6 +758,8 @@ pub async fn test_provider_connection(id: String) -> Result<ConnectionTestResult
 
 #[tauri::command]
 pub async fn query_stream(prompt: String, app: AppHandle) -> Result<(), String> {
+    let messages = normalize_messages(None, &prompt)?;
+
     // Get the active provider with its API key
     let active_provider =
         tauri::async_runtime::spawn_blocking(ProvidersRepository::get_active_with_key)
@@ -696,7 +770,7 @@ pub async fn query_stream(prompt: String, app: AppHandle) -> Result<(), String> 
     match active_provider {
         Some((provider, api_key)) => {
             let streamed =
-                stream_provider_and_emit(&app, "query:chunk", &provider, &api_key, &prompt)
+                stream_provider_and_emit(&app, "query:chunk", &provider, &api_key, &messages)
                     .await
                     .unwrap_or(0);
 
@@ -704,7 +778,7 @@ pub async fn query_stream(prompt: String, app: AppHandle) -> Result<(), String> 
                 return Ok(());
             }
 
-            let response = match call_provider_and_get_text(&provider, &api_key, &prompt).await {
+            let response = match call_provider_and_get_text(&provider, &api_key, &messages).await {
                 Ok(text) => text,
                 Err(err) => {
                     eprintln!("query_stream provider call failed: {err}");
@@ -731,7 +805,11 @@ pub async fn query_stream(prompt: String, app: AppHandle) -> Result<(), String> 
 }
 
 #[tauri::command]
-pub async fn query_provider_once(provider_id: String, prompt: String) -> Result<String, String> {
+pub async fn query_provider_once(
+    provider_id: String,
+    prompt: String,
+    history: Option<Vec<ProviderChatMessage>>,
+) -> Result<String, String> {
     let provider_data = tauri::async_runtime::spawn_blocking(move || {
         let provider = ProvidersRepository::get(&provider_id)
             .map_err(|e| e.to_string())?
@@ -744,13 +822,15 @@ pub async fn query_provider_once(provider_id: String, prompt: String) -> Result<
     .map_err(|e| e.to_string())?;
 
     let (provider, api_key) = provider_data;
-    call_provider_and_get_text(&provider, &api_key, &prompt).await
+    let messages = normalize_messages(history, &prompt)?;
+    call_provider_and_get_text(&provider, &api_key, &messages).await
 }
 
 #[tauri::command]
 pub async fn query_stream_provider(
     provider_id: String,
     prompt: String,
+    history: Option<Vec<ProviderChatMessage>>,
     app: AppHandle,
 ) -> Result<(), String> {
     // Get the specific provider with its API key
@@ -769,14 +849,15 @@ pub async fn query_stream_provider(
 
     // Emit chunks with provider-specific event name
     let event_name = format!("query:chunk:{}", provider.id);
-    let streamed = stream_provider_and_emit(&app, &event_name, &provider, &api_key, &prompt)
+    let messages = normalize_messages(history, &prompt)?;
+    let streamed = stream_provider_and_emit(&app, &event_name, &provider, &api_key, &messages)
         .await
         .unwrap_or(0);
     if streamed > 0 {
         return Ok(());
     }
 
-    let response = call_provider_and_get_text(&provider, &api_key, &prompt).await?;
+    let response = call_provider_and_get_text(&provider, &api_key, &messages).await?;
     app.emit(&event_name, response).map_err(|e| e.to_string())?;
 
     Ok(())
