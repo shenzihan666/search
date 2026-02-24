@@ -9,7 +9,10 @@ interface MarkdownContentProps {
   className?: string;
 }
 
-export function MarkdownContent({ content, className = "" }: MarkdownContentProps) {
+export function MarkdownContent({
+  content,
+  className = "",
+}: MarkdownContentProps) {
   return (
     <div className={`markdown-body text-[13px] leading-relaxed ${className}`}>
       <ReactMarkdown
@@ -27,10 +30,14 @@ export function MarkdownContent({ content, className = "" }: MarkdownContentProp
             <p className="mb-2 last:mb-0 whitespace-pre-wrap">{children}</p>
           ),
           ul: ({ children }) => (
-            <ul className="list-disc list-inside mb-2 space-y-0.5">{children}</ul>
+            <ul className="list-disc list-inside mb-2 space-y-0.5">
+              {children}
+            </ul>
           ),
           ol: ({ children }) => (
-            <ol className="list-decimal list-inside mb-2 space-y-0.5">{children}</ol>
+            <ol className="list-decimal list-inside mb-2 space-y-0.5">
+              {children}
+            </ol>
           ),
           li: ({ children }) => <li className="ml-2">{children}</li>,
           code: ({ children, className: cls }) => {

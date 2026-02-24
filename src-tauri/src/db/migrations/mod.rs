@@ -2,6 +2,10 @@ mod v1_initial;
 mod v2_normalized_path;
 mod v3_providers;
 mod v4_provider_api_key_sqlite;
+mod v5_chat_sessions;
+mod v6_chat_messages;
+mod v7_refactor_schema;
+mod v8_fix_shared_messages;
 
 use crate::db::error::{DbError, DbResult};
 use std::time::{SystemTime, UNIX_EPOCH};
@@ -9,9 +13,13 @@ use v1_initial as V1;
 use v2_normalized_path as V2;
 use v3_providers as V3;
 use v4_provider_api_key_sqlite as V4;
+use v5_chat_sessions as V5;
+use v6_chat_messages as V6;
+use v7_refactor_schema as V7;
+use v8_fix_shared_messages as V8;
 
 #[allow(dead_code)]
-pub const CURRENT_VERSION: u32 = 4;
+pub const CURRENT_VERSION: u32 = 8;
 
 fn now_unix_ms() -> u64 {
     SystemTime::now()
@@ -82,6 +90,30 @@ pub fn run_migrations(conn: &rusqlite::Connection) -> DbResult<()> {
         set_version(conn, V4::VERSION)?;
     }
 
+    // V5: chat sessions persistence.
+    if current < V5::VERSION {
+        V5::apply(conn)?;
+        set_version(conn, V5::VERSION)?;
+    }
+
+    // V6: chat messages persistence for multi-turn/model threads.
+    if current < V6::VERSION {
+        V6::apply(conn)?;
+        set_version(conn, V6::VERSION)?;
+    }
+
+    // V7: Remove panes_json/turns from sessions; add system_prompt; add FTS5 search.
+    if current < V7::VERSION {
+        V7::apply(conn)?;
+        set_version(conn, V7::VERSION)?;
+    }
+
+    // V8: Migrate shared user messages (provider_id='') to per-provider copies.
+    if current < V8::VERSION {
+        V8::apply(conn)?;
+        set_version(conn, V8::VERSION)?;
+    }
+
     Ok(())
 }
 
@@ -91,6 +123,6 @@ mod tests {
 
     #[test]
     fn test_version_is_correct() {
-        assert_eq!(CURRENT_VERSION, 4);
+        assert_eq!(CURRENT_VERSION, 8);
     }
 }
