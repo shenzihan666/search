@@ -219,35 +219,6 @@ impl ChatMessagesRepository {
         })
     }
 
-    pub fn get(id: &str) -> DbResult<Option<ChatMessageRecord>> {
-        connection::with_connection(|conn| {
-            let result = conn.query_row(
-                "SELECT id, session_id, column_id, provider_id, role, content, status, created_at, updated_at
-                 FROM chat_messages WHERE id = ?1",
-                [id],
-                |row| {
-                    Ok(ChatMessageRecord {
-                        id: row.get(0)?,
-                        session_id: row.get(1)?,
-                        column_id: row.get(2)?,
-                        provider_id: row.get(3)?,
-                        role: row.get(4)?,
-                        content: row.get(5)?,
-                        status: row.get(6)?,
-                        created_at: row.get(7)?,
-                        updated_at: row.get(8)?,
-                    })
-                },
-            );
-
-            match result {
-                Ok(message) => Ok(Some(message)),
-                Err(rusqlite::Error::QueryReturnedNoRows) => Ok(None),
-                Err(e) => Err(e.into()),
-            }
-        })
-    }
-
     /// P13: Full-text search across all messages using FTS5.
     pub fn search(query: &str, limit: i64) -> DbResult<Vec<MessageSearchResult>> {
         connection::with_connection(|conn| {

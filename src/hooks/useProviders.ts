@@ -79,7 +79,11 @@ export function useProviders() {
   const updateProvider = useCallback(
     async (id: string, req: UpdateProviderRequest): Promise<void> => {
       try {
-        await invoke("update_provider", { id, req });
+        await withTimeout(
+          invoke("update_provider", { id, req }),
+          10000,
+          "update_provider",
+        );
         await loadProviders();
       } catch (err) {
         console.error("Failed to update provider:", err);

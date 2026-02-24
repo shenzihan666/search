@@ -88,6 +88,9 @@ export function ProviderCard({
   const [showApiKey, setShowApiKey] = useState(false);
   const [apiKeyLoadError, setApiKeyLoadError] = useState<string | null>(null);
   const [apiKeySaveError, setApiKeySaveError] = useState<string | null>(null);
+  const [settingsSaveError, setSettingsSaveError] = useState<string | null>(
+    null,
+  );
   const [isSavingSettings, setIsSavingSettings] = useState(false);
   const [isSavingApiKey, setIsSavingApiKey] = useState(false);
   const [isDeleting, setIsDeleting] = useState(false);
@@ -116,6 +119,7 @@ export function ProviderCard({
 
   const handleSave = async () => {
     setIsSavingSettings(true);
+    setSettingsSaveError(null);
     try {
       await onUpdate(provider.id, {
         name: editedName.trim() || undefined,
@@ -123,6 +127,9 @@ export function ProviderCard({
         base_url: editedBaseUrl.trim() || undefined,
       });
       setIsEditing(false);
+    } catch (error) {
+      const message = error instanceof Error ? error.message : String(error);
+      setSettingsSaveError(message);
     } finally {
       setIsSavingSettings(false);
     }
@@ -381,6 +388,7 @@ export function ProviderCard({
                   className="px-3 h-8 border border-border-gray text-xs font-medium rounded-md hover:bg-gray-50 transition-colors"
                   onClick={() => {
                     setIsEditing(false);
+                    setSettingsSaveError(null);
                     setEditedName(provider.name);
                     setEditedModel(provider.model);
                     setEditedBaseUrl(provider.base_url ?? "");
@@ -422,13 +430,21 @@ export function ProviderCard({
                 <button
                   type="button"
                   className="px-3 h-8 border border-border-gray text-xs font-medium rounded-md hover:bg-gray-50 transition-colors"
-                  onClick={() => setIsEditing(true)}
+                  onClick={() => {
+                    setSettingsSaveError(null);
+                    setIsEditing(true);
+                  }}
                 >
                   Edit
                 </button>
               </>
             )}
           </div>
+          {settingsSaveError && (
+            <p className="text-[11px] text-red-600 mt-2">
+              Failed to save settings: {settingsSaveError}
+            </p>
+          )}
           {testMessage && (
             <p
               className={`text-[11px] mt-2 ${

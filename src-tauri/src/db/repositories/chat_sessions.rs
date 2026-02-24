@@ -315,45 +315,4 @@ impl ChatSessionsRepository {
             Ok(())
         })
     }
-
-    pub fn get(id: &str) -> DbResult<Option<ChatSessionRecord>> {
-        connection::with_connection(|conn| {
-            let result = conn.query_row(
-                "SELECT
-                    s.id,
-                    s.title,
-                    s.provider_ids_json,
-                    s.prompt,
-                    s.system_prompt,
-                    s.created_at,
-                    s.updated_at,
-                    (SELECT COUNT(*) FROM chat_messages m
-                     WHERE m.session_id = s.id AND m.role = 'user') AS turns
-                 FROM chat_sessions s
-                 WHERE s.id = ?1",
-                [id],
-                |row| {
-                    let provider_ids_json: String = row.get(2)?;
-                    let provider_ids =
-                        serde_json::from_str::<Vec<String>>(&provider_ids_json).unwrap_or_default();
-                    Ok(ChatSessionRecord {
-                        id: row.get(0)?,
-                        title: row.get(1)?,
-                        provider_ids,
-                        prompt: row.get(3)?,
-                        system_prompt: row.get(4)?,
-                        created_at: row.get(5)?,
-                        updated_at: row.get(6)?,
-                        turns: row.get(7)?,
-                    })
-                },
-            );
-
-            match result {
-                Ok(session) => Ok(Some(session)),
-                Err(rusqlite::Error::QueryReturnedNoRows) => Ok(None),
-                Err(e) => Err(e.into()),
-            }
-        })
-    }
 }

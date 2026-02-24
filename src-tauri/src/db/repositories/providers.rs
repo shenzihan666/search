@@ -16,6 +16,37 @@ fn now_unix_ms() -> i64 {
 pub struct ProvidersRepository;
 
 impl ProvidersRepository {
+    fn get_with_conn(conn: &rusqlite::Connection, id: &str) -> DbResult<Option<Provider>> {
+        let result = conn.query_row(
+            "SELECT id, name, provider_type, base_url, model, is_active, display_order, created_at, updated_at
+             FROM providers WHERE id = ?1",
+            [id],
+            |row| {
+                let provider_type_str: String = row.get(2)?;
+                let provider_type =
+                    ProviderType::from_str(&provider_type_str).unwrap_or(ProviderType::Custom);
+
+                Ok(Provider {
+                    id: row.get(0)?,
+                    name: row.get(1)?,
+                    provider_type,
+                    base_url: row.get(3)?,
+                    model: row.get(4)?,
+                    is_active: row.get::<_, i32>(5)? == 1,
+                    display_order: row.get(6)?,
+                    created_at: row.get(7)?,
+                    updated_at: row.get(8)?,
+                })
+            },
+        );
+
+        match result {
+            Ok(provider) => Ok(Some(provider)),
+            Err(rusqlite::Error::QueryReturnedNoRows) => Ok(None),
+            Err(e) => Err(e.into()),
+        }
+    }
+
     /// Create a new provider.
     pub fn create(req: CreateProviderRequest) -> DbResult<Provider> {
         connection::with_connection(|conn| {
@@ -118,35 +149,7 @@ impl ProvidersRepository {
 
     /// Get a provider by ID.
     pub fn get(id: &str) -> DbResult<Option<Provider>> {
-        connection::with_connection(|conn| {
-            let result = conn.query_row(
-                "SELECT id, name, provider_type, base_url, model, is_active, display_order, created_at, updated_at
-                 FROM providers WHERE id = ?1",
-                [id],
-                |row| {
-                    let provider_type_str: String = row.get(2)?;
-                    let provider_type = ProviderType::from_str(&provider_type_str).unwrap_or(ProviderType::Custom);
-
-                    Ok(Provider {
-                        id: row.get(0)?,
-                        name: row.get(1)?,
-                        provider_type,
-                        base_url: row.get(3)?,
-                        model: row.get(4)?,
-                        is_active: row.get::<_, i32>(5)? == 1,
-                        display_order: row.get(6)?,
-                        created_at: row.get(7)?,
-                        updated_at: row.get(8)?,
-                    })
-                },
-            );
-
-            match result {
-                Ok(provider) => Ok(Some(provider)),
-                Err(rusqlite::Error::QueryReturnedNoRows) => Ok(None),
-                Err(e) => Err(e.into()),
-            }
-        })
+        connection::with_connection(|conn| Self::get_with_conn(conn, id))
     }
 
     /// Get the active provider with its API key.
@@ -216,7 +219,7 @@ impl ProvidersRepository {
             }
 
             if updates.is_empty() {
-                return Self::get(id)?
+                return Self::get_with_conn(conn, id)?
                     .ok_or_else(|| DbError::Query("Provider not found".to_string()));
             }
 
@@ -227,9 +230,13 @@ impl ProvidersRepository {
             let sql = format!("UPDATE providers SET {} WHERE id = ?", updates.join(", "));
             let params_refs: Vec<&dyn rusqlite::ToSql> =
                 params.iter().map(|p| p.as_ref()).collect();
-            conn.execute(&sql, params_refs.as_slice())?;
+            let rows_affected = conn.execute(&sql, params_refs.as_slice())?;
+            if rows_affected == 0 {
+                return Err(DbError::Query("Provider not found".to_string()));
+            }
 
-            Self::get(id)?.ok_or_else(|| DbError::Query("Provider not found".to_string()))
+            Self::get_with_conn(conn, id)?
+                .ok_or_else(|| DbError::Query("Provider not found".to_string()))
         })
     }
 

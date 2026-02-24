@@ -49,69 +49,6 @@ impl ChatSessionColumnsRepository {
         })
     }
 
-    pub fn create_for_session(
-        session_id: &str,
-        provider_ids: &[String],
-    ) -> DbResult<Vec<ChatSessionColumnRecord>> {
-        connection::with_connection(|conn| {
-            let now = now_unix_ms();
-            let ids = if provider_ids.is_empty() {
-                vec![String::new()]
-            } else {
-                provider_ids.to_vec()
-            };
-            for (idx, provider_id) in ids.iter().enumerate() {
-                let column_id = format!("{session_id}:c{idx}");
-                conn.execute(
-                    "INSERT OR REPLACE INTO chat_session_columns
-                     (id, session_id, position, provider_id, created_at, updated_at)
-                     VALUES (?1, ?2, ?3, ?4, COALESCE((SELECT created_at FROM chat_session_columns WHERE id = ?1), ?5), ?5)",
-                    rusqlite::params![
-                        column_id,
-                        session_id,
-                        idx as i64,
-                        provider_id,
-                        now
-                    ],
-                )?;
-            }
-            // Delete stale columns if count shrank.
-            conn.execute(
-                "DELETE FROM chat_session_columns
-                 WHERE session_id = ?1 AND position >= ?2",
-                rusqlite::params![session_id, ids.len() as i64],
-            )?;
-
-            let provider_ids_json = serde_json::to_string(&ids)?;
-            conn.execute(
-                "UPDATE chat_sessions SET provider_ids_json = ?1, updated_at = ?2 WHERE id = ?3",
-                rusqlite::params![provider_ids_json, now, session_id],
-            )?;
-
-            let mut stmt = conn.prepare(
-                "SELECT id, session_id, position, provider_id, created_at, updated_at
-                 FROM chat_session_columns
-                 WHERE session_id = ?1
-                 ORDER BY position ASC",
-            )?;
-            let rows = stmt.query_map([session_id], |row| {
-                Ok(ChatSessionColumnRecord {
-                    id: row.get(0)?,
-                    session_id: row.get(1)?,
-                    position: row.get(2)?,
-                    provider_id: row.get(3)?,
-                    created_at: row.get(4)?,
-                    updated_at: row.get(5)?,
-                })
-            })?;
-            let mut result = Vec::new();
-            for row in rows {
-                result.push(row?);
-            }
-            Ok(result)
-        })
-    }
-
     pub fn set_provider(column_id: &str, provider_id: &str) -> DbResult<ChatSessionColumnRecord> {
         connection::with_connection(|conn| {
             let now = now_unix_ms();
