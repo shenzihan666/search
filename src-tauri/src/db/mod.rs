@@ -18,6 +18,7 @@ pub fn initialize(app: &AppHandle) -> DbResult<()> {
 }
 
 pub use repositories::{
-    AppsRepository, ChatMessageRecord, ChatMessagesRepository, ChatSessionRecord,
-    ChatSessionsRepository, MessageSearchResult, ProvidersRepository, SettingsRepository,
+    AppsRepository, ChatMessageRecord, ChatMessagesRepository, ChatSessionColumnRecord,
+    ChatSessionColumnsRepository, ChatSessionRecord, ChatSessionsRepository, MessageSearchResult,
+    ProvidersRepository, SettingsRepository,
 };

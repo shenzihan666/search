@@ -1,19 +1,3 @@
-/**
- * useChatMessages — owns all message state and the conversation-history builder.
- *
- * Changes from previous version:
- *   P4  — No more shared "" providerId bucket. Each provider owns its full
- *         message chain. getColumnMessages / buildHistory are now simple
- *         single-provider lookups — no merge needed.
- *   P6  — createMessageId uses crypto.randomUUID().
- *   P7  — buildHistory uses a character-budget trim instead of a hard
- *         24-message cap.
- *   P3  — mapDbMessage preserves DB status ("streaming" | "error" | "done")
- *         so in-flight background requests remain visible when revisiting a session.
- *   P12 — loadForSession merge prefers the message with the higher updatedAt
- *         (Last-Write-Wins) instead of always preferring in-memory.
- *   P11 — deleteMessage removes a message from state and DB.
- */
 import { useCallback, useMemo, useRef, useState } from "react";
 import { ChatDb } from "../lib/chatDb";
 import type {
@@ -24,18 +8,13 @@ import type {
   ProviderHistoryMessage,
 } from "../types/chat";
 
-// ─── Constants ───────────────────────────────────────────────────────────────
-
-/**
- * P7: Token budget for conversation history sent to the LLM.
- * ~3 chars per token (conservative average across English + CJK).
- * 8 000 tokens keeps us comfortably inside every common context window.
- */
 const CHARS_PER_TOKEN = 3;
 const MAX_CONTEXT_TOKENS = 8_000;
 const MAX_CONTEXT_CHARS = MAX_CONTEXT_TOKENS * CHARS_PER_TOKEN;
 
-function trimToTokenBudget(msgs: ProviderHistoryMessage[]): ProviderHistoryMessage[] {
+function trimToTokenBudget(
+  msgs: ProviderHistoryMessage[],
+): ProviderHistoryMessage[] {
   let chars = 0;
   const result: ProviderHistoryMessage[] = [];
   for (let i = msgs.length - 1; i >= 0; i--) {
@@ -46,22 +25,15 @@ function trimToTokenBudget(msgs: ProviderHistoryMessage[]): ProviderHistoryMessa
   return result;
 }
 
-// ─── Helpers ─────────────────────────────────────────────────────────────────
-
-/** P6: Use the browser's cryptographic UUID generator. */
 export function createMessageId(): string {
   return crypto.randomUUID();
 }
 
-/**
- * Monotonic timestamp — stays > any previously returned value even when
- * multiple messages are created within the same millisecond.
- */
-let _lastTs = 0;
+let lastTs = 0;
 export function monotonicNow(): number {
   const now = Date.now();
-  _lastTs = now > _lastTs ? now : _lastTs + 1;
-  return _lastTs;
+  lastTs = now > lastTs ? now : lastTs + 1;
+  return lastTs;
 }
 
 function mapDbMessage(r: DbChatMessageRecord): ChatMessage {
@@ -71,6 +43,7 @@ function mapDbMessage(r: DbChatMessageRecord): ChatMessage {
   return {
     id: r.id,
     sessionId: r.session_id,
+    columnId: r.column_id || r.provider_id,
     providerId: r.provider_id,
     role,
     content: r.content ?? "",
@@ -80,28 +53,23 @@ function mapDbMessage(r: DbChatMessageRecord): ChatMessage {
   };
 }
 
-// ─── Hook ────────────────────────────────────────────────────────────────────
-
 export interface UseChatMessagesReturn {
-  messagesByProvider: Record<string, ChatMessage[]>;
+  messagesByColumn: Record<string, ChatMessage[]>;
   messagesRef: React.MutableRefObject<Record<string, ChatMessage[]>>;
-  /** Returns provider-specific messages sorted by createdAt. */
-  getColumnMessages: (providerId: string) => ChatMessage[];
-  /**
-   * Builds the conversation history array passed to the LLM.
-   * Scoped to a single provider. Trims to MAX_CONTEXT_CHARS budget.
-   */
-  buildHistory: (providerId: string, systemPrompt?: string) => ProviderHistoryMessage[];
-  /** True when the total character length for this provider exceeds the budget. */
-  isTruncated: (providerId: string) => boolean;
+  getColumnMessages: (columnId: string) => ChatMessage[];
+  buildHistory: (
+    columnId: string,
+    systemPrompt?: string,
+  ) => ProviderHistoryMessage[];
+  isTruncated: (columnId: string) => boolean;
   append: (msg: ChatMessage) => void;
   update: (
-    providerId: string,
+    columnId: string,
     msgId: string,
     updater: (m: ChatMessage) => ChatMessage,
   ) => void;
-  removeLastError: (providerId: string) => string | null;
-  deleteMessage: (providerId: string, msgId: string) => Promise<void>;
+  removeLastError: (columnId: string) => string | null;
+  deleteMessage: (columnId: string, msgId: string) => Promise<void>;
   loadForSession: (
     sessionId: string,
     activeSessionIdRef: React.MutableRefObject<string | null>,
@@ -110,7 +78,7 @@ export interface UseChatMessagesReturn {
 }
 
 export function useChatMessages(): UseChatMessagesReturn {
-  const [messagesByProvider, setMessagesByProvider] = useState<
+  const [messagesByColumn, setMessagesByColumn] = useState<
     Record<string, ChatMessage[]>
   >({});
   const messagesRef = useRef<Record<string, ChatMessage[]>>({});
@@ -119,9 +87,11 @@ export function useChatMessages(): UseChatMessagesReturn {
     (
       updater:
         | Record<string, ChatMessage[]>
-        | ((prev: Record<string, ChatMessage[]>) => Record<string, ChatMessage[]>),
+        | ((
+            prev: Record<string, ChatMessage[]>,
+          ) => Record<string, ChatMessage[]>),
     ) => {
-      setMessagesByProvider((prev) => {
+      setMessagesByColumn((prev) => {
         const next = typeof updater === "function" ? updater(prev) : updater;
         messagesRef.current = next;
         return next;
@@ -130,25 +100,27 @@ export function useChatMessages(): UseChatMessagesReturn {
     [],
   );
 
-  // ── Mutations ─────────────────────────────────────────────────────────────
-
   const append = useCallback(
     (msg: ChatMessage) => {
       setMessages((prev) => {
-        const existing = prev[msg.providerId] ?? [];
-        return { ...prev, [msg.providerId]: [...existing, msg] };
+        const existing = prev[msg.columnId] ?? [];
+        return { ...prev, [msg.columnId]: [...existing, msg] };
       });
     },
     [setMessages],
   );
 
   const update = useCallback(
-    (providerId: string, msgId: string, updater: (m: ChatMessage) => ChatMessage) => {
+    (
+      columnId: string,
+      msgId: string,
+      updater: (m: ChatMessage) => ChatMessage,
+    ) => {
       setMessages((prev) => {
-        const msgs = prev[providerId] ?? [];
+        const msgs = prev[columnId] ?? [];
         return {
           ...prev,
-          [providerId]: msgs.map((m) => (m.id === msgId ? updater(m) : m)),
+          [columnId]: msgs.map((m) => (m.id === msgId ? updater(m) : m)),
         };
       });
     },
@@ -160,27 +132,26 @@ export function useChatMessages(): UseChatMessagesReturn {
   }, [setMessages]);
 
   const removeLastError = useCallback(
-    (providerId: string): string | null => {
+    (columnId: string): string | null => {
       let removedId: string | null = null;
       setMessages((prev) => {
-        const msgs = prev[providerId] ?? [];
+        const msgs = prev[columnId] ?? [];
         const idx = [...msgs].reverse().findIndex((m) => m.status === "error");
         if (idx === -1) return prev;
         const actualIdx = msgs.length - 1 - idx;
         removedId = msgs[actualIdx].id;
-        return { ...prev, [providerId]: msgs.filter((_, i) => i !== actualIdx) };
+        return { ...prev, [columnId]: msgs.filter((_, i) => i !== actualIdx) };
       });
       return removedId;
     },
     [setMessages],
   );
 
-  /** P11: Remove a message from state and from the DB. */
   const deleteMessage = useCallback(
-    async (providerId: string, msgId: string) => {
+    async (columnId: string, msgId: string) => {
       setMessages((prev) => {
-        const msgs = prev[providerId] ?? [];
-        return { ...prev, [providerId]: msgs.filter((m) => m.id !== msgId) };
+        const msgs = prev[columnId] ?? [];
+        return { ...prev, [columnId]: msgs.filter((m) => m.id !== msgId) };
       });
       try {
         await ChatDb.deleteMessage(msgId);
@@ -190,8 +161,6 @@ export function useChatMessages(): UseChatMessagesReturn {
     },
     [setMessages],
   );
-
-  // ── DB load ───────────────────────────────────────────────────────────────
 
   const loadForSession = useCallback(
     async (
@@ -205,7 +174,8 @@ export function useChatMessages(): UseChatMessagesReturn {
         const next: Record<string, ChatMessage[]> = {};
         for (const row of rows) {
           const msg = mapDbMessage(row);
-          (next[msg.providerId] ??= []).push(msg);
+          if (!next[msg.columnId]) next[msg.columnId] = [];
+          next[msg.columnId].push(msg);
         }
 
         const current = messagesRef.current;
@@ -214,20 +184,17 @@ export function useChatMessages(): UseChatMessagesReturn {
           return;
         }
 
-        // P12: Merge with Last-Write-Wins on updatedAt.
-        // DB records are loaded first; in-memory records override only when
-        // their updatedAt is >= the persisted version (streaming state wins).
         const merged: Record<string, ChatMessage[]> = { ...current };
-        for (const [pid, persisted] of Object.entries(next)) {
+        for (const [columnId, persisted] of Object.entries(next)) {
           const byId = new Map<string, ChatMessage>();
           for (const m of persisted) byId.set(m.id, m);
-          for (const m of merged[pid] ?? []) {
+          for (const m of merged[columnId] ?? []) {
             const existing = byId.get(m.id);
             if (!existing || m.updatedAt >= existing.updatedAt) {
               byId.set(m.id, m);
             }
           }
-          merged[pid] = Array.from(byId.values()).sort(
+          merged[columnId] = Array.from(byId.values()).sort(
             (a, b) => a.createdAt - b.createdAt,
           );
         }
@@ -241,36 +208,27 @@ export function useChatMessages(): UseChatMessagesReturn {
     [setMessages],
   );
 
-  // ── Derived data ──────────────────────────────────────────────────────────
-
-  /**
-   * P4: No merge with a shared "" bucket needed anymore.
-   * Each provider holds its own complete message chain.
-   */
   const columnMessagesCache = useMemo(() => {
     const cache = new Map<string, ChatMessage[]>();
-    for (const [pid, msgs] of Object.entries(messagesByProvider)) {
-      cache.set(pid, [...msgs].sort((a, b) => a.createdAt - b.createdAt));
+    for (const [columnId, msgs] of Object.entries(messagesByColumn)) {
+      cache.set(
+        columnId,
+        [...msgs].sort((a, b) => a.createdAt - b.createdAt),
+      );
     }
     return cache;
-  }, [messagesByProvider]);
+  }, [messagesByColumn]);
 
   const getColumnMessages = useCallback(
-    (providerId: string): ChatMessage[] => {
-      return columnMessagesCache.get(providerId) ?? [];
+    (columnId: string): ChatMessage[] => {
+      return columnMessagesCache.get(columnId) ?? [];
     },
     [columnMessagesCache],
   );
 
-  /**
-   * P7: Build LLM context for a provider. Trims to MAX_CONTEXT_CHARS budget.
-   * P8: Prepends system prompt when provided.
-   * Uses ref (not state) so it's safe inside async callbacks.
-   * Excludes error and streaming messages from history.
-   */
   const buildHistory = useCallback(
-    (providerId: string, systemPrompt?: string): ProviderHistoryMessage[] => {
-      const msgs = messagesRef.current[providerId] ?? [];
+    (columnId: string, systemPrompt?: string): ProviderHistoryMessage[] => {
+      const msgs = messagesRef.current[columnId] ?? [];
       const conversation = msgs
         .slice()
         .sort((a, b) => a.createdAt - b.createdAt)
@@ -280,10 +238,12 @@ export function useChatMessages(): UseChatMessagesReturn {
             m.status === "done" &&
             m.content.trim().length > 0,
         )
-        .map((m) => ({ role: m.role as "user" | "assistant", content: m.content }));
+        .map((m) => ({
+          role: m.role as "user" | "assistant",
+          content: m.content,
+        }));
 
       const trimmed = trimToTokenBudget(conversation);
-
       if (systemPrompt?.trim()) {
         return [{ role: "system", content: systemPrompt.trim() }, ...trimmed];
       }
@@ -292,9 +252,8 @@ export function useChatMessages(): UseChatMessagesReturn {
     [],
   );
 
-  /** P7: whether context was trimmed for this provider by character budget. */
-  const isTruncated = useCallback((providerId: string): boolean => {
-    const msgs = messagesRef.current[providerId] ?? [];
+  const isTruncated = useCallback((columnId: string): boolean => {
+    const msgs = messagesRef.current[columnId] ?? [];
     const total = msgs
       .filter(
         (m) =>
@@ -307,7 +266,7 @@ export function useChatMessages(): UseChatMessagesReturn {
   }, []);
 
   return {
-    messagesByProvider,
+    messagesByColumn,
     messagesRef,
     getColumnMessages,
     buildHistory,

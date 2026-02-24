@@ -6,6 +6,7 @@ mod v5_chat_sessions;
 mod v6_chat_messages;
 mod v7_refactor_schema;
 mod v8_fix_shared_messages;
+mod v9_session_columns;
 
 use crate::db::error::{DbError, DbResult};
 use std::time::{SystemTime, UNIX_EPOCH};
@@ -17,9 +18,10 @@ use v5_chat_sessions as V5;
 use v6_chat_messages as V6;
 use v7_refactor_schema as V7;
 use v8_fix_shared_messages as V8;
+use v9_session_columns as V9;
 
 #[allow(dead_code)]
-pub const CURRENT_VERSION: u32 = 8;
+pub const CURRENT_VERSION: u32 = 9;
 
 fn now_unix_ms() -> u64 {
     SystemTime::now()
@@ -114,6 +116,12 @@ pub fn run_migrations(conn: &rusqlite::Connection) -> DbResult<()> {
         set_version(conn, V8::VERSION)?;
     }
 
+    // V9: Introduce session columns and backfill message.column_id.
+    if current < V9::VERSION {
+        V9::apply(conn)?;
+        set_version(conn, V9::VERSION)?;
+    }
+
     Ok(())
 }
 
@@ -123,6 +131,6 @@ mod tests {
 
     #[test]
     fn test_version_is_correct() {
-        assert_eq!(CURRENT_VERSION, 8);
+        assert_eq!(CURRENT_VERSION, 9);
     }
 }

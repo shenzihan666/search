@@ -14,6 +14,7 @@ fn now_unix_ms() -> i64 {
 pub struct ChatMessageRecord {
     pub id: String,
     pub session_id: String,
+    pub column_id: String,
     pub provider_id: String,
     pub role: String,
     pub content: String,
@@ -44,7 +45,7 @@ impl ChatMessagesRepository {
         connection::with_connection(|conn| {
             let sql = if limit > 0 {
                 format!(
-                    "SELECT id, session_id, provider_id, role, content, status, created_at, updated_at
+                    "SELECT id, session_id, column_id, provider_id, role, content, status, created_at, updated_at
                      FROM chat_messages
                      WHERE session_id = '{session_id}'
                      ORDER BY created_at ASC, id ASC
@@ -52,7 +53,7 @@ impl ChatMessagesRepository {
                 )
             } else {
                 format!(
-                    "SELECT id, session_id, provider_id, role, content, status, created_at, updated_at
+                    "SELECT id, session_id, column_id, provider_id, role, content, status, created_at, updated_at
                      FROM chat_messages
                      WHERE session_id = '{session_id}'
                      ORDER BY created_at ASC, id ASC"
@@ -64,12 +65,13 @@ impl ChatMessagesRepository {
                 Ok(ChatMessageRecord {
                     id: row.get(0)?,
                     session_id: row.get(1)?,
-                    provider_id: row.get(2)?,
-                    role: row.get(3)?,
-                    content: row.get(4)?,
-                    status: row.get(5)?,
-                    created_at: row.get(6)?,
-                    updated_at: row.get(7)?,
+                    column_id: row.get(2)?,
+                    provider_id: row.get(3)?,
+                    role: row.get(4)?,
+                    content: row.get(5)?,
+                    status: row.get(6)?,
+                    created_at: row.get(7)?,
+                    updated_at: row.get(8)?,
                 })
             })?;
 
@@ -96,6 +98,7 @@ impl ChatMessagesRepository {
     pub fn create(
         id: &str,
         session_id: &str,
+        column_id: &str,
         provider_id: &str,
         role: &str,
         content: &str,
@@ -116,17 +119,18 @@ impl ChatMessagesRepository {
             let updated = updated_at.unwrap_or(created);
             conn.execute(
                 "INSERT INTO chat_messages (
-                    id, session_id, provider_id, role, content, status, created_at, updated_at
-                ) VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8)",
+                    id, session_id, column_id, provider_id, role, content, status, created_at, updated_at
+                ) VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9)",
                 rusqlite::params![
                     id,
                     session_id,
+                    column_id,
                     provider_id,
                     role,
                     content,
                     status,
                     created,
-                    updated
+                    updated,
                 ],
             )?;
 
@@ -138,6 +142,7 @@ impl ChatMessagesRepository {
             Ok(ChatMessageRecord {
                 id: id.to_string(),
                 session_id: session_id.to_string(),
+                column_id: column_id.to_string(),
                 provider_id: provider_id.to_string(),
                 role: role.to_string(),
                 content: content.to_string(),
@@ -170,19 +175,20 @@ impl ChatMessagesRepository {
             // re-entering with_connection and deadlocking the global mutex.
             let record = conn
                 .query_row(
-                    "SELECT id, session_id, provider_id, role, content, status, created_at, updated_at
+                    "SELECT id, session_id, column_id, provider_id, role, content, status, created_at, updated_at
                      FROM chat_messages WHERE id = ?1",
                     [id],
                     |row| {
                         Ok(ChatMessageRecord {
                             id: row.get(0)?,
                             session_id: row.get(1)?,
-                            provider_id: row.get(2)?,
-                            role: row.get(3)?,
-                            content: row.get(4)?,
-                            status: row.get(5)?,
-                            created_at: row.get(6)?,
-                            updated_at: row.get(7)?,
+                            column_id: row.get(2)?,
+                            provider_id: row.get(3)?,
+                            role: row.get(4)?,
+                            content: row.get(5)?,
+                            status: row.get(6)?,
+                            created_at: row.get(7)?,
+                            updated_at: row.get(8)?,
                         })
                     },
                 )
@@ -216,19 +222,20 @@ impl ChatMessagesRepository {
     pub fn get(id: &str) -> DbResult<Option<ChatMessageRecord>> {
         connection::with_connection(|conn| {
             let result = conn.query_row(
-                "SELECT id, session_id, provider_id, role, content, status, created_at, updated_at
+                "SELECT id, session_id, column_id, provider_id, role, content, status, created_at, updated_at
                  FROM chat_messages WHERE id = ?1",
                 [id],
                 |row| {
                     Ok(ChatMessageRecord {
                         id: row.get(0)?,
                         session_id: row.get(1)?,
-                        provider_id: row.get(2)?,
-                        role: row.get(3)?,
-                        content: row.get(4)?,
-                        status: row.get(5)?,
-                        created_at: row.get(6)?,
-                        updated_at: row.get(7)?,
+                        column_id: row.get(2)?,
+                        provider_id: row.get(3)?,
+                        role: row.get(4)?,
+                        content: row.get(5)?,
+                        status: row.get(6)?,
+                        created_at: row.get(7)?,
+                        updated_at: row.get(8)?,
                     })
                 },
             );

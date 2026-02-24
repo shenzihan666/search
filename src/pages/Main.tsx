@@ -1,15 +1,5 @@
 /**
- * Main 鈥?launcher orchestrator.
- *
- * Changes from previous version:
- *   P1  鈥?panes removed from session/query state. ChatProviderColumn derives
- *         loading/error from message status.
- *   P2  鈥?turns is derived from DB; getActiveTurns() reads it from sessionsRef.
- *   P4  鈥?no more makeInitialPanes(); each provider manages its own messages.
- *   P8  鈥?system prompt editor shown when a session is active.
- *   P10 鈥?per-provider pagination tracked with hasMoreByProvider state.
- *   P11 鈥?onDeleteMessage wired through to useChatMessages.deleteMessage.
- *   P13 鈥?onSearchResultSelect opens the target session.
+ * Main launcher orchestrator.
  */
 import { invoke } from "@tauri-apps/api/core";
 import { listen } from "@tauri-apps/api/event";
@@ -30,8 +20,6 @@ import { AppSettingsApi } from "@/lib/appSettings";
 import { withTimeout } from "@/lib/utils";
 import type { ProviderView } from "@/types/provider";
 
-// 鈹€鈹€鈹€ Local types 鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€
-
 interface AppInfo {
   name: string;
   path: string;
@@ -46,10 +34,7 @@ interface AppSettingUpdateEvent {
   value: string;
 }
 
-// 鈹€鈹€鈹€ Component 鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€
-
 function Main() {
-  // 鈹€鈹€ Search state 鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€
   const [inputValue, setInputValue] = useState("");
   const [appResults, setAppResults] = useState<SearchResult[]>([]);
   const [suggestions, setSuggestions] = useState<SearchResult[]>([]);
@@ -57,17 +42,16 @@ function Main() {
   const [selectedItemValue, setSelectedItemValue] = useState("");
   const [multiplier, setMultiplier] = useState(1);
 
-  // 鈹€鈹€ Chat UI state 鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€
   const [mode, setMode] = useState<"search" | "chat">("search");
   const [hideOnBlurEnabled, setHideOnBlurEnabled] = useState(true);
   const [defaultSystemPrompt, setDefaultSystemPrompt] = useState("");
   const [editingSessionId, setEditingSessionId] = useState<string | null>(null);
   const [editingTitle, setEditingTitle] = useState("");
-  // P10: track whether there are more messages to load per provider
-  const [hasMoreByProvider, setHasMoreByProvider] = useState<
+  // Track pagination per session column.
+  const [hasMoreByColumn, setHasMoreByColumn] = useState<
     Record<string, boolean>
   >({});
-  const [pageOffsetByProvider, setPageOffsetByProvider] = useState<
+  const [pageOffsetByColumn, setPageOffsetByColumn] = useState<
     Record<string, number>
   >({});
   const PAGE_SIZE = 100;
@@ -82,7 +66,6 @@ function Main() {
     hideOnBlurRef.current = hideOnBlurEnabled;
   }, [hideOnBlurEnabled]);
 
-  // 鈹€鈹€ Hooks 鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€
   const { providers } = useProviders();
   const sessions = useChatSessions();
   const messages = useChatMessages();
@@ -92,11 +75,11 @@ function Main() {
   // flushed the setSessions call from a previous send; this ref acts as a local
   // high-water mark so rapid follow-ups always get distinct nextTurns values.
   const pendingTurnsRef = useRef(0);
-  useEffect(() => {
-    // Reset to zero whenever the user switches to a different session so the
-    // high-water mark doesn't carry over from a previous session.
+  const prevSessionIdRef = useRef(sessions.activeSessionId);
+  if (prevSessionIdRef.current !== sessions.activeSessionId) {
+    prevSessionIdRef.current = sessions.activeSessionId;
     pendingTurnsRef.current = 0;
-  }, []);
+  }
 
   const query = useChatQuery({
     appendMessage: messages.append,
@@ -107,7 +90,6 @@ function Main() {
     persistSessionState: sessions.persistState,
   });
 
-  // 鈹€鈹€ Derived: providers 鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€
   const providersWithKeys = useMemo(
     () =>
       [...providers]
@@ -118,11 +100,38 @@ function Main() {
     [providers],
   );
 
-  const maxMultiplier = Math.min(providersWithKeys.length, 4);
+  const selectableProviders = useMemo(
+    () => providersWithKeys.filter((p) => p.is_active),
+    [providersWithKeys],
+  );
 
-  const activeChatProviders = useMemo(
-    () => providersWithKeys.filter((p) => query.chatProviderIds.includes(p.id)),
-    [providersWithKeys, query.chatProviderIds],
+  const maxMultiplier = Math.min(selectableProviders.length, 4);
+
+  const providerById = useMemo(
+    () => new Map(providersWithKeys.map((p) => [p.id, p])),
+    [providersWithKeys],
+  );
+  const getProviderLabel = useCallback(
+    (providerId: string) => providerById.get(providerId)?.name ?? providerId,
+    [providerById],
+  );
+
+  const activeChatColumns = useMemo(
+    () =>
+      sessions.activeSessionColumns
+        .map((column) => ({
+          column,
+          provider: providerById.get(column.providerId) ?? null,
+        }))
+        .filter(
+          (
+            item,
+          ): item is {
+            column: (typeof sessions.activeSessionColumns)[number];
+            provider: ProviderView;
+          } => item.provider !== null,
+        ),
+    [sessions.activeSessionColumns, providerById],
   );
 
   const fetchFreshProviders = useCallback(async (): Promise<ProviderView[]> => {
@@ -133,18 +142,17 @@ function Main() {
         "list_providers",
       );
       return latest
-        .filter((p) => p.has_api_key)
+        .filter((p) => p.has_api_key && p.is_active)
         .sort((a, b) =>
           a.is_active === b.is_active ? 0 : a.is_active ? -1 : 1,
         );
     } catch {
-      return providersWithKeys;
+      return selectableProviders;
     }
-  }, [providersWithKeys]);
+  }, [selectableProviders]);
 
-  // 鈹€鈹€ Derived: layout 鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€
   const activeModelCount =
-    mode === "chat" ? Math.max(1, activeChatProviders.length) : 1;
+    mode === "chat" ? Math.max(1, activeChatColumns.length) : 1;
 
   const desiredWindowWidth =
     mode !== "chat"
@@ -176,7 +184,6 @@ function Main() {
             ? "max-w-[1940px]"
             : "max-w-[1680px]";
 
-  // 鈹€鈹€ Utility callbacks 鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€
   const hideLauncher = useCallback(async () => {
     const { getCurrentWindow } = await import("@tauri-apps/api/window");
     await getCurrentWindow().hide();
@@ -238,7 +245,6 @@ function Main() {
     };
   }, []);
 
-  // 鈹€鈹€ Effect: D1 鈥?JS-level focus-loss auto-hide (search mode only) 鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€
   useEffect(() => {
     let cleanup: (() => void) | undefined;
     void (async () => {
@@ -253,7 +259,6 @@ function Main() {
     return () => cleanup?.();
   }, []);
 
-  // 鈹€鈹€ Effect: window sizing 鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€
   useEffect(() => {
     if (windowResizeFrameRef.current !== null) {
       cancelAnimationFrame(windowResizeFrameRef.current);
@@ -357,28 +362,32 @@ function Main() {
     };
   }, [desiredWindowWidth, desiredWindowHeight]);
 
-  // 鈹€鈹€ Effect: load messages when active session changes 鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€
   const { loadForSession, clear: clearMessages } = messages;
-  const { activeSessionId, activeSessionIdRef } = sessions;
+  const { activeSessionId, activeSessionIdRef, loadSessionColumns } = sessions;
 
   useEffect(() => {
     if (!activeSessionId) {
       clearMessages();
-      setHasMoreByProvider({});
-      setPageOffsetByProvider({});
+      setHasMoreByColumn({});
+      setPageOffsetByColumn({});
       return;
     }
     void loadForSession(activeSessionId, activeSessionIdRef);
-  }, [activeSessionId, activeSessionIdRef, loadForSession, clearMessages]);
+    void loadSessionColumns(activeSessionId);
+  }, [
+    activeSessionId,
+    activeSessionIdRef,
+    loadForSession,
+    clearMessages,
+    loadSessionColumns,
+  ]);
 
-  // 鈹€鈹€ Effect: auto-activate most recent session on first chat entry 鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€
   const { selectSession, sessions: sessionsList } = sessions;
   useEffect(() => {
     if (mode !== "chat" || activeSessionId || sessionsList.length === 0) return;
     selectSession(sessionsList[0].id);
   }, [mode, activeSessionId, sessionsList, selectSession]);
 
-  // 鈹€鈹€ Effect: launcher:opened 鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€
   useEffect(() => {
     const unlisten = listen("launcher:opened", () => {
       focusInput();
@@ -389,7 +398,6 @@ function Main() {
     };
   }, [focusInput, loadSuggestions]);
 
-  // 鈹€鈹€ Effect: app search (debounced 150 ms) 鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€
   const isSearchQuery = mode === "search" && inputValue.trim().length > 0;
   const visibleResults = isSearchQuery ? appResults : suggestions;
 
@@ -412,7 +420,6 @@ function Main() {
     return () => clearTimeout(timer);
   }, [inputValue, isSearchQuery, loadSuggestions, mode]);
 
-  // 鈹€鈹€ Effect: app icons 鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€
   useEffect(() => {
     if (mode !== "search" || visibleResults.length === 0) return;
     const pending = visibleResults
@@ -444,7 +451,6 @@ function Main() {
     };
   }, [appIcons, mode, visibleResults]);
 
-  // 鈹€鈹€ Effect: keep selected item valid 鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€
   useEffect(() => {
     if (mode !== "search" || visibleResults.length === 0) return;
     if (!visibleResults.some((r) => r.app.path === selectedItemValue)) {
@@ -452,31 +458,21 @@ function Main() {
     }
   }, [mode, selectedItemValue, visibleResults]);
 
-  // 鈹€鈹€ Chat: exit to search 鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€
-  const { cancelAll, setChatPrompt, setChatProviderIds } = query;
+  const { cancelAll, setChatPrompt } = query;
   const { clearSession } = sessions;
 
   const exitChatToSearch = useCallback(() => {
     cancelAll();
     setChatPrompt("");
-    setChatProviderIds([]);
     clearMessages();
     clearSession();
     setMode("search");
     setInputValue("");
-    setHasMoreByProvider({});
-    setPageOffsetByProvider({});
+    setHasMoreByColumn({});
+    setPageOffsetByColumn({});
     focusInput();
-  }, [
-    cancelAll,
-    setChatPrompt,
-    setChatProviderIds,
-    clearMessages,
-    clearSession,
-    focusInput,
-  ]);
+  }, [cancelAll, setChatPrompt, clearMessages, clearSession, focusInput]);
 
-  // 鈹€鈹€ Effect: global keyboard shortcuts (Escape, F2) 鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€
   const { activeSession } = sessions;
   useEffect(() => {
     const onKeyDown = (e: KeyboardEvent) => {
@@ -503,7 +499,6 @@ function Main() {
     return () => window.removeEventListener("keydown", onKeyDown);
   }, [mode, activeSession, editingSessionId, hideLauncher, exitChatToSearch]);
 
-  // 鈹€鈹€ Chat: session selection 鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€
   const handleSessionSelect = useCallback(
     (id: string) => {
       const target = sessionsList.find((s) => s.id === id);
@@ -512,9 +507,8 @@ function Main() {
       clearMessages();
       selectSession(id);
       query.setChatPrompt(target.prompt);
-      query.setChatProviderIds(target.providerIds);
-      setHasMoreByProvider({});
-      setPageOffsetByProvider({});
+      setHasMoreByColumn({});
+      setPageOffsetByColumn({});
     },
     [
       sessionsList,
@@ -531,7 +525,6 @@ function Main() {
         query.cancelAll();
         clearMessages();
         query.setChatPrompt("");
-        query.setChatProviderIds([]);
       }
       const nextId = await sessions.deleteSession(id);
       if (nextId) handleSessionSelect(nextId);
@@ -557,11 +550,10 @@ function Main() {
     return fallback || undefined;
   }, [sessions.activeSession, defaultSystemPrompt]);
 
-  // 鈹€鈹€ P10: Load earlier messages for a provider 鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€
   const handleLoadMore = useCallback(
-    async (providerId: string) => {
+    async (columnId: string) => {
       if (!sessions.activeSessionId) return;
-      const currentOffset = pageOffsetByProvider[providerId] ?? 0;
+      const currentOffset = pageOffsetByColumn[columnId] ?? 0;
       const newOffset = currentOffset + PAGE_SIZE;
       try {
         const { ChatDb } = await import("@/lib/chatDb");
@@ -570,14 +562,17 @@ function Main() {
           PAGE_SIZE,
           newOffset,
         );
-        if (rows.length === 0) {
-          setHasMoreByProvider((prev) => ({ ...prev, [providerId]: false }));
+        const filtered = rows.filter(
+          (r) => (r.column_id || r.provider_id) === columnId,
+        );
+        if (filtered.length === 0) {
+          setHasMoreByColumn((prev) => ({ ...prev, [columnId]: false }));
           return;
         }
-        // Prepend the older messages (they are oldest-first from the backend)
-        const mapped = rows.map((r) => ({
+        const mapped = filtered.map((r) => ({
           id: r.id,
           sessionId: r.session_id,
+          columnId: r.column_id || r.provider_id,
           providerId: r.provider_id,
           role: r.role as "user" | "assistant",
           content: r.content ?? "",
@@ -588,22 +583,21 @@ function Main() {
           updatedAt: r.updated_at,
         }));
         for (const msg of mapped) messages.append(msg);
-        setPageOffsetByProvider((prev) => ({
+        setPageOffsetByColumn((prev) => ({
           ...prev,
-          [providerId]: newOffset,
+          [columnId]: newOffset,
         }));
-        setHasMoreByProvider((prev) => ({
+        setHasMoreByColumn((prev) => ({
           ...prev,
-          [providerId]: rows.length === PAGE_SIZE,
+          [columnId]: filtered.length === PAGE_SIZE,
         }));
       } catch (err) {
         console.error("Failed to load more messages:", err);
       }
     },
-    [sessions.activeSessionId, pageOffsetByProvider, messages],
+    [sessions.activeSessionId, pageOffsetByColumn, messages],
   );
 
-  // 鈹€鈹€ Chat: start queries 鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€
   const startChatFromInput = useCallback(async () => {
     const prompt = inputValue.trim();
     if (!prompt) return;
@@ -635,11 +629,14 @@ function Main() {
       return;
     }
 
-    query.setChatProviderIds(selected.map((p) => p.id));
+    const targets = selected.map((provider, index) => ({
+      columnId: `${sessionId}:c${index}`,
+      provider,
+    }));
     const fallbackSystemPrompt = defaultSystemPrompt.trim() || undefined;
-    void query.queryAllProviders(
+    void query.queryAllColumns(
       prompt,
-      selected,
+      targets,
       sessionId,
       1,
       fallbackSystemPrompt,
@@ -669,32 +666,49 @@ function Main() {
     } catch (err) {
       console.error("Failed to create empty chat session:", err);
       setMode("search");
-      return;
     }
-
-    query.setChatProviderIds(selected.map((p) => p.id));
-  }, [multiplier, fetchFreshProviders, sessions, query]);
+  }, [multiplier, fetchFreshProviders, sessions]);
 
   const submitChatFollowUp = useCallback(async () => {
     const prompt = inputValue.trim();
     if (!prompt || !sessions.activeSessionId) return;
 
-    const providers =
-      activeChatProviders.length > 0
-        ? activeChatProviders
-        : providersWithKeys.slice(
-            0,
-            Math.max(1, Math.min(multiplier, maxMultiplier)),
-          );
-    if (providers.length === 0) return;
+    const fallbackProviders = selectableProviders.slice(
+      0,
+      Math.max(1, Math.min(multiplier, maxMultiplier)),
+    );
+    const columnSource =
+      sessions.activeSessionColumns.length > 0
+        ? sessions.activeSessionColumns
+        : fallbackProviders.map((provider, index) => ({
+            id: `${sessions.activeSessionId}:c${index}`,
+            sessionId: sessions.activeSessionId as string,
+            position: index,
+            providerId: provider.id,
+            createdAt: Date.now(),
+            updatedAt: Date.now(),
+          }));
+
+    const targets = columnSource
+      .map((column) => ({
+        columnId: column.id,
+        provider: providerById.get(column.providerId) ?? null,
+      }))
+      .filter((item) => item.provider !== null)
+      .map((item) => ({
+        columnId: item.columnId,
+        provider: item.provider as ProviderView,
+      }));
+
+    if (targets.length === 0) return;
 
     pendingTurnsRef.current =
       Math.max(pendingTurnsRef.current, sessions.getActiveTurns()) + 1;
     const nextTurns = pendingTurnsRef.current;
     setInputValue("");
-    void query.queryAllProviders(
+    void query.queryAllColumns(
       prompt,
-      providers,
+      targets,
       sessions.activeSessionId,
       nextTurns,
       resolveSystemPrompt(),
@@ -702,25 +716,27 @@ function Main() {
   }, [
     inputValue,
     sessions,
-    activeChatProviders,
-    providersWithKeys,
+    selectableProviders,
     multiplier,
     maxMultiplier,
     query,
     resolveSystemPrompt,
+    providerById,
   ]);
 
   const submitProviderFollowUp = useCallback(
-    async (provider: ProviderView, prompt: string) => {
+    async (columnId: string, provider: ProviderView, prompt: string) => {
       if (!sessions.activeSessionId) return;
       pendingTurnsRef.current =
         Math.max(pendingTurnsRef.current, sessions.getActiveTurns()) + 1;
       const nextTurns = pendingTurnsRef.current;
-      const allIds = Array.from(
-        new Set([...query.chatProviderIds, provider.id]),
-      );
-      void query.queryOneProvider(
+      const allIds =
+        sessions.activeSessionColumns.length > 0
+          ? sessions.activeSessionColumns.map((column) => column.providerId)
+          : [provider.id];
+      void query.queryOneColumn(
         prompt,
+        columnId,
         provider,
         sessions.activeSessionId,
         nextTurns,
@@ -731,7 +747,14 @@ function Main() {
     [sessions, query, resolveSystemPrompt],
   );
 
-  // 鈹€鈹€ Search: app launch 鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€
+  const handleColumnProviderChange = useCallback(
+    async (columnId: string, providerId: string) => {
+      if (!providerById.has(providerId)) return;
+      await sessions.setColumnProvider(columnId, providerId);
+    },
+    [providerById, sessions],
+  );
+
   const handleAppSelect = useCallback(
     async (app: AppInfo) => {
       try {
@@ -745,7 +768,6 @@ function Main() {
     [hideLauncher, isSearchQuery, loadSuggestions],
   );
 
-  // 鈹€鈹€ Render 鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€
   return (
     <div className="fixed inset-0 pointer-events-none z-0 overflow-hidden">
       <main className="desktop-canvas relative z-10 w-full px-8 pointer-events-auto">
@@ -763,7 +785,7 @@ function Main() {
             <CommandInput
               placeholder={
                 mode === "chat"
-                  ? "Ask follow-up鈥?(Enter to send, Esc for app search)"
+                  ? "Ask follow-up... (Enter to send, Esc for app search)"
                   : "Search apps or ask AI (Tab to chat)"
               }
               ref={inputRef}
@@ -810,7 +832,6 @@ function Main() {
                 mode === "chat" ? "flex-1 min-h-0 flex flex-col" : ""
               }`}
             >
-              {/* 鈹€鈹€ Search mode 鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€ */}
               {mode === "search" ? (
                 <CommandList className="max-h-[400px] overflow-y-auto no-scrollbar">
                   <div className="px-5 py-2.5 bg-[#FAFAFA]">
@@ -860,7 +881,6 @@ function Main() {
                   </div>
                 </CommandList>
               ) : (
-                /* 鈹€鈹€ Chat mode 鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€ */
                 <div className="bg-white flex-1 min-h-0 flex overflow-hidden">
                   {/* Session sidebar */}
                   <ChatSidebar
@@ -900,38 +920,55 @@ function Main() {
                       <div className="flex-1 flex items-center justify-center text-text-secondary text-sm">
                         Create a session to start multi-model chat.
                       </div>
-                    ) : activeChatProviders.length === 0 ? (
+                    ) : activeChatColumns.length === 0 ? (
                       <div className="flex-1 flex items-center justify-center text-text-secondary text-sm">
                         No providers with API keys. Add API keys in Settings.
                       </div>
                     ) : (
                       <div className="flex-1 min-h-0 flex overflow-x-auto">
-                        {activeChatProviders.map((provider) => (
+                        {activeChatColumns.map(({ column, provider }) => (
                           <ChatProviderColumn
-                            key={`${sessions.activeSessionId}-${provider.id}`}
+                            key={column.id}
+                            columnId={column.id}
                             provider={provider}
-                            messages={messages.getColumnMessages(provider.id)}
-                            isTruncated={messages.isTruncated(provider.id)}
-                            hasMore={hasMoreByProvider[provider.id]}
-                            onLoadMore={() => void handleLoadMore(provider.id)}
+                            selectedProviderId={column.providerId}
+                            availableProviders={selectableProviders}
+                            messages={messages.getColumnMessages(column.id)}
+                            isTruncated={messages.isTruncated(column.id)}
+                            hasMore={hasMoreByColumn[column.id]}
+                            onLoadMore={() => void handleLoadMore(column.id)}
+                            onProviderChange={(columnId, providerId) =>
+                              void handleColumnProviderChange(
+                                columnId,
+                                providerId,
+                              )
+                            }
                             onFollowUpSubmit={(prompt) =>
-                              void submitProviderFollowUp(provider, prompt)
+                              void submitProviderFollowUp(
+                                column.id,
+                                provider,
+                                prompt,
+                              )
                             }
                             onRetry={(prompt) =>
                               sessions.activeSessionId
-                                ? query.retryProvider(
+                                ? query.retryColumn(
+                                    column.id,
                                     provider,
                                     prompt,
                                     sessions.activeSessionId,
                                     sessions.activeSession?.turns ?? 0,
-                                    query.chatProviderIds,
+                                    sessions.activeSessionColumns.map(
+                                      (item) => item.providerId,
+                                    ),
                                     sessions.activeSession?.systemPrompt,
                                   )
                                 : undefined
                             }
                             onDeleteMessage={(msgId) =>
-                              void messages.deleteMessage(provider.id, msgId)
+                              void messages.deleteMessage(column.id, msgId)
                             }
+                            getProviderLabel={getProviderLabel}
                           />
                         ))}
                       </div>
@@ -941,7 +978,6 @@ function Main() {
               )}
             </div>
 
-            {/* 鈹€鈹€ Status bar 鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€ */}
             <div className="px-5 py-3 border-t border-border-gray bg-[#FAFAFA] flex justify-between items-center shrink-0">
               <div className="flex items-center gap-5">
                 {mode === "search" ? (
@@ -1015,8 +1051,6 @@ function Main() {
     </div>
   );
 }
-
-// 鈹€鈹€鈹€ Tiny helper component 鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€
 
 function Kbd({ label, hint }: { label: string; hint: string }) {
   return (

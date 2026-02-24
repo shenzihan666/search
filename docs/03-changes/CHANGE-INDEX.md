@@ -4,6 +4,16 @@ All changes are archived with implementation details, validation evidence, and r
 
 ## 2026
 
+### 2026-02-24: Session Columns Refactor
+- **Status**: Completed
+- **Scope**: v9 database migration, chat_session_columns table, column-based message linkage
+- **Archive**: `docs/03-changes/2026/2026-02-24-session-columns/`
+- **Key Changes**:
+  - New `chat_session_columns` table for column abstraction
+  - Messages linked to columns via `column_id` instead of direct provider linkage
+  - Enables column reordering and provider switching per column
+  - Backfill migration for existing data
+
 ### 2026-02-24: Chat Persistence Schema Refactor
 - **Status**: Completed
 - **Scope**: v5-v8 database migrations, per-provider message ownership, FTS5 search, pagination, system prompts

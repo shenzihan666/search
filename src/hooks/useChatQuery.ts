@@ -1,40 +1,33 @@
-/**
- * useChatQuery — drives streaming queries against one or many providers.
- *
- * Changes from previous version:
- *   P4  — queryAllProviders creates ONE user message PER provider (no more
- *         shared "" providerId). Each provider has a self-contained history.
- *         The skipUserMessage / historyOverride pattern is removed.
- *   P3  — streamProvider throttles DB flushes every 2 s during streaming
- *         so partial content survives a crash.
- *   P9  — After the first turn completes, fires an async LLM call to
- *         generate a concise session title.
- *   P1  — persistSessionState no longer takes panes or turns.
- */
 import { invoke } from "@tauri-apps/api/core";
 import { listen } from "@tauri-apps/api/event";
 import { useCallback, useEffect, useRef, useState } from "react";
 import { ChatDb } from "../lib/chatDb";
 import { withTimeout } from "../lib/utils";
-import { createMessageId, monotonicNow } from "./useChatMessages";
 import type {
   ChatMessage,
   ChatSession,
   ProviderHistoryMessage,
 } from "../types/chat";
 import type { ProviderView } from "../types/provider";
+import { createMessageId, monotonicNow } from "./useChatMessages";
 
-// ─── Dependency injection contract ────────────────────────────────────────────
+export interface ChatQueryColumnTarget {
+  columnId: string;
+  provider: ProviderView;
+}
 
 export interface ChatQueryDeps {
   appendMessage: (msg: ChatMessage) => void;
   updateMessage: (
-    providerId: string,
+    columnId: string,
     msgId: string,
     updater: (m: ChatMessage) => ChatMessage,
   ) => void;
-  buildHistory: (providerId: string, systemPrompt?: string) => ProviderHistoryMessage[];
-  removeLastError: (providerId: string) => string | null;
+  buildHistory: (
+    columnId: string,
+    systemPrompt?: string,
+  ) => ProviderHistoryMessage[];
+  removeLastError: (columnId: string) => string | null;
   updateSessionLocal: (
     id: string,
     updater: (s: ChatSession) => ChatSession,
@@ -47,31 +40,29 @@ export interface ChatQueryDeps {
   ) => Promise<void>;
 }
 
-// ─── Public API ───────────────────────────────────────────────────────────────
-
 export interface UseChatQueryReturn {
   isRunning: boolean;
   chatPrompt: string;
   isBroadcastPrompt: boolean;
-  chatProviderIds: string[];
   setChatPrompt: (p: string) => void;
-  setChatProviderIds: (ids: string[]) => void;
-  queryAllProviders: (
+  queryAllColumns: (
     prompt: string,
-    providers: ProviderView[],
+    columns: ChatQueryColumnTarget[],
     sessionId: string,
     nextTurns: number,
     systemPrompt?: string,
   ) => Promise<void>;
-  queryOneProvider: (
+  queryOneColumn: (
     prompt: string,
+    columnId: string,
     provider: ProviderView,
     sessionId: string,
     nextTurns: number,
     allProviderIds: string[],
     systemPrompt?: string,
   ) => Promise<void>;
-  retryProvider: (
+  retryColumn: (
+    columnId: string,
     provider: ProviderView,
     prompt: string,
     sessionId: string,
@@ -82,47 +73,45 @@ export interface UseChatQueryReturn {
   cancelAll: () => void;
 }
 
-// ─── Hook ─────────────────────────────────────────────────────────────────────
-
 export function useChatQuery(deps: ChatQueryDeps): UseChatQueryReturn {
   const [isRunning, setIsRunning] = useState(false);
   const [chatPrompt, setChatPrompt] = useState("");
   const [isBroadcastPrompt, setIsBroadcastPrompt] = useState(false);
-  const [chatProviderIds, setChatProviderIds] = useState<string[]>([]);
 
   const requestIdRef = useRef(0);
-  const providerRequestIdsRef = useRef<Record<string, number>>({});
+  const columnRequestIdsRef = useRef<Record<string, number>>({});
   const inFlightRef = useRef<Set<string>>(new Set());
 
-  // ── In-flight tracking ────────────────────────────────────────────────────
-
-  const markInFlight = useCallback((providerId: string, active: boolean) => {
-    if (active) {
-      inFlightRef.current.add(providerId);
-    } else {
-      inFlightRef.current.delete(providerId);
-    }
+  const markInFlight = useCallback((columnId: string, active: boolean) => {
+    if (active) inFlightRef.current.add(columnId);
+    else inFlightRef.current.delete(columnId);
     setIsRunning(inFlightRef.current.size > 0);
   }, []);
 
   const cancelAll = useCallback(() => {
     requestIdRef.current += 1;
-    providerRequestIdsRef.current = {};
+    columnRequestIdsRef.current = {};
     inFlightRef.current.clear();
     setIsRunning(false);
     setIsBroadcastPrompt(false);
   }, []);
 
-  // cleanup on unmount
-  useEffect(() => () => { cancelAll(); }, [cancelAll]);
-
-  // ── P9: Generate a short session title via LLM ────────────────────────────
+  useEffect(
+    () => () => {
+      cancelAll();
+    },
+    [cancelAll],
+  );
 
   const generateTitle = useCallback(
-    async (sessionId: string, providerId: string, userMsg: string, assistantMsg: string) => {
+    async (
+      sessionId: string,
+      providerId: string,
+      userMsg: string,
+      assistantMsg: string,
+    ) => {
       if (!userMsg.trim()) return;
-      const prompt =
-        `Summarize this conversation in 5 words or fewer. Reply with ONLY the title, no punctuation.\n\nUser: ${userMsg.slice(0, 300)}\nAssistant: ${assistantMsg.slice(0, 300)}`;
+      const prompt = `Summarize this conversation in 5 words or fewer. Reply with ONLY the title, no punctuation.\n\nUser: ${userMsg.slice(0, 300)}\nAssistant: ${assistantMsg.slice(0, 300)}`;
       try {
         const title = await withTimeout(
           invoke<string>("query_provider_once", {
@@ -133,7 +122,10 @@ export function useChatQuery(deps: ChatQueryDeps): UseChatQueryReturn {
           15_000,
           "generate_title",
         );
-        const clean = title.trim().replace(/^["']|["']$/g, "").slice(0, 60);
+        const clean = title
+          .trim()
+          .replace(/^["']|["']$/g, "")
+          .slice(0, 60);
         if (clean) {
           const saved = await ChatDb.renameSession(sessionId, clean);
           deps.updateSessionLocal(sessionId, (s) => ({
@@ -143,17 +135,16 @@ export function useChatQuery(deps: ChatQueryDeps): UseChatQueryReturn {
           }));
         }
       } catch {
-        // Title generation is best-effort — silently ignore failures.
+        // best effort
       }
     },
     [deps],
   );
 
-  // ── Core streaming runner for a single provider ───────────────────────────
-
-  const streamProvider = useCallback(
+  const streamColumn = useCallback(
     async (
       prompt: string,
+      columnId: string,
       provider: ProviderView,
       sessionId: string,
       nextTurns: number,
@@ -164,17 +155,16 @@ export function useChatQuery(deps: ChatQueryDeps): UseChatQueryReturn {
       const normalizedPrompt = prompt.trim();
       if (!normalizedPrompt) return;
 
-      const providerIds = Array.from(new Set(allProviderIds));
+      const providerIds = [...allProviderIds];
       setChatPrompt(normalizedPrompt);
       if (createUserMessage) setIsBroadcastPrompt(false);
-      setChatProviderIds(providerIds);
 
-      // ── User message (skipped on retry — message already exists) ─────────
       if (createUserMessage) {
         const ts = monotonicNow();
         const userMsg: ChatMessage = {
           id: createMessageId(),
           sessionId,
+          columnId,
           providerId: provider.id,
           role: "user",
           content: normalizedPrompt,
@@ -188,7 +178,7 @@ export function useChatQuery(deps: ChatQueryDeps): UseChatQueryReturn {
         } catch (err) {
           const errMsg = err instanceof Error ? err.message : String(err);
           const finalContent = `Error: Failed to persist user message. ${errMsg}`;
-          deps.updateMessage(provider.id, userMsg.id, (m) => ({
+          deps.updateMessage(columnId, userMsg.id, (m) => ({
             ...m,
             content: finalContent,
             status: "error",
@@ -199,19 +189,18 @@ export function useChatQuery(deps: ChatQueryDeps): UseChatQueryReturn {
         }
       }
 
-      // ── Build history snapshot (includes the new user message as a guard) ─
-      const history = deps.buildHistory(provider.id, systemPrompt);
+      const history = deps.buildHistory(columnId, systemPrompt);
       const last = history[history.length - 1];
       if (!(last?.role === "user" && last.content === normalizedPrompt)) {
         history.push({ role: "user", content: normalizedPrompt });
       }
 
-      // ── Assistant message placeholder ─────────────────────────────────────
       const assistantMsgId = createMessageId();
       const assistantTs = monotonicNow();
       const assistantMsg: ChatMessage = {
         id: assistantMsgId,
         sessionId,
+        columnId,
         providerId: provider.id,
         role: "assistant",
         content: "",
@@ -225,7 +214,7 @@ export function useChatQuery(deps: ChatQueryDeps): UseChatQueryReturn {
       } catch (err) {
         const errMsg = err instanceof Error ? err.message : String(err);
         const finalContent = `Error: Failed to persist assistant message. ${errMsg}`;
-        deps.updateMessage(provider.id, assistantMsgId, (m) => ({
+        deps.updateMessage(columnId, assistantMsgId, (m) => ({
           ...m,
           content: finalContent,
           status: "error",
@@ -237,7 +226,6 @@ export function useChatQuery(deps: ChatQueryDeps): UseChatQueryReturn {
 
       deps.updateSessionLocal(sessionId, (s) => ({
         ...s,
-        // Title is set on first turn as a placeholder; LLM will generate the real one.
         title: s.turns === 0 ? normalizedPrompt.slice(0, 50) : s.title,
         updatedAt: monotonicNow(),
         providerIds,
@@ -245,17 +233,11 @@ export function useChatQuery(deps: ChatQueryDeps): UseChatQueryReturn {
         turns: nextTurns,
       }));
 
-
-      // ── Request id for cancellation ───────────────────────────────────────
-      // Each streamProvider invocation gets a unique id so that a stale
-      // stream's finally block cannot delete the new stream's mapping entry,
-      // which was the root cause of "no reply on follow-up" messages.
       requestIdRef.current += 1;
       const reqId = requestIdRef.current;
-      providerRequestIdsRef.current[provider.id] = reqId;
-      markInFlight(provider.id, true);
+      columnRequestIdsRef.current[columnId] = reqId;
+      markInFlight(columnId, true);
 
-      // ── P3: Periodic flush timer during streaming ─────────────────────────
       let accumulated = "";
       let flushTimer: ReturnType<typeof setTimeout> | null = null;
 
@@ -276,19 +258,16 @@ export function useChatQuery(deps: ChatQueryDeps): UseChatQueryReturn {
         }
       };
 
-      // ── Stream ────────────────────────────────────────────────────────────
-      const eventName = `query:chunk:${provider.id}`;
+      const eventName = `query:chunk:${columnId}`;
       const unlisten = await listen<string>(eventName, (event) => {
-        if (providerRequestIdsRef.current[provider.id] !== reqId) return;
+        if (columnRequestIdsRef.current[columnId] !== reqId) return;
         accumulated = `${accumulated}${event.payload}`;
-
-        deps.updateMessage(provider.id, assistantMsgId, (m) => ({
+        deps.updateMessage(columnId, assistantMsgId, (m) => ({
           ...m,
           content: accumulated,
           status: "streaming",
           updatedAt: monotonicNow(),
         }));
-
         scheduleFlush();
       });
 
@@ -298,15 +277,16 @@ export function useChatQuery(deps: ChatQueryDeps): UseChatQueryReturn {
             providerId: provider.id,
             prompt: normalizedPrompt,
             history,
+            streamKey: columnId,
           }),
           180_000,
           "query_stream_provider",
         );
 
-        if (providerRequestIdsRef.current[provider.id] !== reqId) return;
+        if (columnRequestIdsRef.current[columnId] !== reqId) return;
 
         cancelFlush();
-        deps.updateMessage(provider.id, assistantMsgId, (m) => ({
+        deps.updateMessage(columnId, assistantMsgId, (m) => ({
           ...m,
           content: accumulated,
           status: "done",
@@ -314,17 +294,20 @@ export function useChatQuery(deps: ChatQueryDeps): UseChatQueryReturn {
         }));
         void ChatDb.updateMessage(assistantMsgId, accumulated, "done");
 
-        // P9: Generate an LLM title after the first turn.
         if (nextTurns === 1) {
-          void generateTitle(sessionId, provider.id, normalizedPrompt, accumulated);
+          void generateTitle(
+            sessionId,
+            provider.id,
+            normalizedPrompt,
+            accumulated,
+          );
         }
       } catch (err) {
-        if (providerRequestIdsRef.current[provider.id] !== reqId) return;
+        if (columnRequestIdsRef.current[columnId] !== reqId) return;
         cancelFlush();
         const errMsg = err instanceof Error ? err.message : String(err);
         const finalContent = accumulated.trim() || `Error: ${errMsg}`;
-
-        deps.updateMessage(provider.id, assistantMsgId, (m) => ({
+        deps.updateMessage(columnId, assistantMsgId, (m) => ({
           ...m,
           content: finalContent,
           status: "error",
@@ -334,71 +317,60 @@ export function useChatQuery(deps: ChatQueryDeps): UseChatQueryReturn {
       } finally {
         cancelFlush();
         unlisten();
-        // Only clean up state if this stream is still the active one for this
-        // provider.  A newer stream overwrites the mapping entry, so stale
-        // streams must not remove the new entry or reset the in-flight flag.
-        if (providerRequestIdsRef.current[provider.id] === reqId) {
-          delete providerRequestIdsRef.current[provider.id];
-          markInFlight(provider.id, false);
+        if (columnRequestIdsRef.current[columnId] === reqId) {
+          delete columnRequestIdsRef.current[columnId];
+          markInFlight(columnId, false);
         }
       }
 
       await deps.persistSessionState(sessionId, providerIds, normalizedPrompt);
     },
-    [deps, markInFlight, generateTitle],
+    [deps, generateTitle, markInFlight],
   );
 
-  // ── Public: broadcast to all providers ───────────────────────────────────
-
-  /**
-   * P4: Creates one user message per provider (no shared "" bucket).
-   * Each provider gets its own full conversation chain.
-   */
-  const queryAllProviders = useCallback(
+  const queryAllColumns = useCallback(
     async (
       prompt: string,
-      providers: ProviderView[],
+      columns: ChatQueryColumnTarget[],
       sessionId: string,
       nextTurns: number,
       systemPrompt?: string,
     ) => {
-      if (!prompt.trim() || providers.length === 0) return;
-
-      const providerIds = providers.map((p) => p.id);
+      if (!prompt.trim() || columns.length === 0) return;
       setChatPrompt(prompt.trim());
       setIsBroadcastPrompt(true);
-      setChatProviderIds(providerIds);
-
+      const providerIds = columns.map((c) => c.provider.id);
       await Promise.all(
-        providers.map((provider) =>
-          streamProvider(
+        columns.map(({ columnId, provider }) =>
+          streamColumn(
             prompt,
+            columnId,
             provider,
             sessionId,
             nextTurns,
             providerIds,
-            true, // each provider creates its own user message
+            true,
             systemPrompt,
           ),
         ),
       );
     },
-    [streamProvider],
+    [streamColumn],
   );
 
-  // ── Public: single-provider follow-up ─────────────────────────────────────
-
-  const queryOneProvider = useCallback(
+  const queryOneColumn = useCallback(
     async (
       prompt: string,
+      columnId: string,
       provider: ProviderView,
       sessionId: string,
       nextTurns: number,
       allProviderIds: string[],
       systemPrompt?: string,
     ) => {
-      await streamProvider(
+      await streamColumn(
         prompt,
+        columnId,
         provider,
         sessionId,
         nextTurns,
@@ -407,13 +379,12 @@ export function useChatQuery(deps: ChatQueryDeps): UseChatQueryReturn {
         systemPrompt,
       );
     },
-    [streamProvider],
+    [streamColumn],
   );
 
-  // ── Retry a failed provider ───────────────────────────────────────────────
-
-  const retryProvider = useCallback(
+  const retryColumn = useCallback(
     (
+      columnId: string,
       provider: ProviderView,
       prompt: string,
       sessionId: string,
@@ -421,30 +392,29 @@ export function useChatQuery(deps: ChatQueryDeps): UseChatQueryReturn {
       allProviderIds: string[],
       systemPrompt?: string,
     ) => {
-      deps.removeLastError(provider.id);
-      void streamProvider(
+      deps.removeLastError(columnId);
+      void streamColumn(
         prompt,
+        columnId,
         provider,
         sessionId,
         turns,
         allProviderIds,
-        false, // retry reuses the existing user message — don't create a new one
+        false,
         systemPrompt,
       );
     },
-    [deps, streamProvider],
+    [deps, streamColumn],
   );
 
   return {
     isRunning,
     chatPrompt,
     isBroadcastPrompt,
-    chatProviderIds,
     setChatPrompt,
-    setChatProviderIds,
-    queryAllProviders,
-    queryOneProvider,
-    retryProvider,
+    queryAllColumns,
+    queryOneColumn,
+    retryColumn,
     cancelAll,
   };
 }

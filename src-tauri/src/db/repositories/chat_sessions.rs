@@ -87,6 +87,21 @@ impl ChatSessionsRepository {
                 rusqlite::params![id, normalized_title, provider_ids_json, now],
             )?;
 
+            let column_provider_ids = if provider_ids.is_empty() {
+                vec![String::new()]
+            } else {
+                provider_ids.to_vec()
+            };
+            for (idx, provider_id) in column_provider_ids.iter().enumerate() {
+                let column_id = format!("{id}:c{idx}");
+                conn.execute(
+                    "INSERT OR REPLACE INTO chat_session_columns
+                     (id, session_id, position, provider_id, created_at, updated_at)
+                     VALUES (?1, ?2, ?3, ?4, ?5, ?5)",
+                    rusqlite::params![column_id, id, idx as i64, provider_id, now],
+                )?;
+            }
+
             Ok(ChatSessionRecord {
                 id: id.to_string(),
                 title: normalized_title,
@@ -177,6 +192,30 @@ impl ChatSessionsRepository {
             if rows == 0 {
                 return Err(DbError::Query("Session not found".to_string()));
             }
+
+            let column_provider_ids = if provider_ids.is_empty() {
+                vec![String::new()]
+            } else {
+                provider_ids.to_vec()
+            };
+            for (idx, provider_id) in column_provider_ids.iter().enumerate() {
+                let column_id = format!("{id}:c{idx}");
+                conn.execute(
+                    "INSERT OR REPLACE INTO chat_session_columns
+                     (id, session_id, position, provider_id, created_at, updated_at)
+                     VALUES (
+                        ?1, ?2, ?3, ?4,
+                        COALESCE((SELECT created_at FROM chat_session_columns WHERE id = ?1), ?5),
+                        ?5
+                     )",
+                    rusqlite::params![column_id, id, idx as i64, provider_id, now],
+                )?;
+            }
+            conn.execute(
+                "DELETE FROM chat_session_columns
+                 WHERE session_id = ?1 AND position >= ?2",
+                rusqlite::params![id, column_provider_ids.len() as i64],
+            )?;
 
             conn.query_row(
                 "SELECT

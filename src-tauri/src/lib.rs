@@ -14,8 +14,9 @@ use apps::{
     get_app_icon, get_suggestions, initialize_cache, launch_app, refresh_app_cache, search_apps,
 };
 use db::{
-    ChatMessageRecord, ChatMessagesRepository, ChatSessionRecord, ChatSessionsRepository,
-    MessageSearchResult, ProvidersRepository, SettingsRepository,
+    ChatMessageRecord, ChatMessagesRepository, ChatSessionColumnRecord,
+    ChatSessionColumnsRepository, ChatSessionRecord, ChatSessionsRepository, MessageSearchResult,
+    ProvidersRepository, SettingsRepository,
 };
 use provider::{
     query_provider_once, query_stream, query_stream_provider,
@@ -525,6 +526,33 @@ async fn create_chat_session(
 }
 
 #[tauri::command]
+async fn list_chat_session_columns(
+    session_id: String,
+    _app: tauri::AppHandle,
+) -> Result<Vec<ChatSessionColumnRecord>, String> {
+    tauri::async_runtime::spawn_blocking(move || {
+        ChatSessionColumnsRepository::list_by_session(&session_id)
+    })
+    .await
+    .map_err(|e| e.to_string())?
+    .map_err(|e| e.to_string())
+}
+
+#[tauri::command]
+async fn set_chat_session_column_provider(
+    column_id: String,
+    provider_id: String,
+    _app: tauri::AppHandle,
+) -> Result<ChatSessionColumnRecord, String> {
+    tauri::async_runtime::spawn_blocking(move || {
+        ChatSessionColumnsRepository::set_provider(&column_id, &provider_id)
+    })
+    .await
+    .map_err(|e| e.to_string())?
+    .map_err(|e| e.to_string())
+}
+
+#[tauri::command]
 async fn rename_chat_session(
     id: String,
     title: String,
@@ -607,6 +635,7 @@ async fn count_chat_messages(session_id: String, _app: tauri::AppHandle) -> Resu
 async fn create_chat_message(
     id: String,
     session_id: String,
+    column_id: String,
     provider_id: String,
     role: String,
     content: String,
@@ -619,6 +648,7 @@ async fn create_chat_message(
         ChatMessagesRepository::create(
             &id,
             &session_id,
+            &column_id,
             &provider_id,
             &role,
             &content,
@@ -812,8 +842,10 @@ pub fn run() {
             // Chat session persistence commands
             list_chat_sessions,
             create_chat_session,
+            list_chat_session_columns,
             rename_chat_session,
             save_chat_session_state,
+            set_chat_session_column_provider,
             set_session_system_prompt,
             delete_chat_session,
             list_chat_messages,

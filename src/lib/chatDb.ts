@@ -1,14 +1,9 @@
-/**
- * chatDb.ts — centralised Tauri invoke layer for chat persistence.
- *
- * Tauri v2 #[tauri::command] uses camelCase for JS-side parameter names
- * (Rust snake_case `provider_id` becomes `providerId` on the JS side).
- */
 import { invoke } from "@tauri-apps/api/core";
 import type {
   ChatMessage,
   ChatMessageStatus,
   DbChatMessageRecord,
+  DbChatSessionColumnRecord,
   DbChatSessionRecord,
   MessageSearchResult,
 } from "../types/chat";
@@ -16,10 +11,18 @@ import { withTimeout } from "./utils";
 
 export const ChatDb = {
   listSessions(): Promise<DbChatSessionRecord[]> {
-    return withTimeout(invoke("list_chat_sessions"), 10_000, "list_chat_sessions");
+    return withTimeout(
+      invoke("list_chat_sessions"),
+      10_000,
+      "list_chat_sessions",
+    );
   },
 
-  createSession(id: string, title: string, providerIds: string[]): Promise<DbChatSessionRecord> {
+  createSession(
+    id: string,
+    title: string,
+    providerIds: string[],
+  ): Promise<DbChatSessionRecord> {
     return withTimeout(
       invoke("create_chat_session", { id, title, providerIds }),
       10_000,
@@ -35,7 +38,6 @@ export const ChatDb = {
     );
   },
 
-  /** P1+P2: panes and turns are no longer persisted. */
   saveSessionState(
     id: string,
     providerIds: string[],
@@ -48,8 +50,10 @@ export const ChatDb = {
     );
   },
 
-  /** P8: Set or clear the system prompt for a session. */
-  setSystemPrompt(id: string, systemPrompt: string): Promise<DbChatSessionRecord> {
+  setSystemPrompt(
+    id: string,
+    systemPrompt: string,
+  ): Promise<DbChatSessionRecord> {
     return withTimeout(
       invoke("set_session_system_prompt", { id, systemPrompt }),
       10_000,
@@ -58,10 +62,32 @@ export const ChatDb = {
   },
 
   deleteSession(id: string): Promise<void> {
-    return withTimeout(invoke("delete_chat_session", { id }), 10_000, "delete_chat_session");
+    return withTimeout(
+      invoke("delete_chat_session", { id }),
+      10_000,
+      "delete_chat_session",
+    );
   },
 
-  /** P10: limit=0 (default) loads all messages. */
+  listSessionColumns(sessionId: string): Promise<DbChatSessionColumnRecord[]> {
+    return withTimeout(
+      invoke("list_chat_session_columns", { sessionId }),
+      10_000,
+      "list_chat_session_columns",
+    );
+  },
+
+  setSessionColumnProvider(
+    columnId: string,
+    providerId: string,
+  ): Promise<DbChatSessionColumnRecord> {
+    return withTimeout(
+      invoke("set_chat_session_column_provider", { columnId, providerId }),
+      10_000,
+      "set_chat_session_column_provider",
+    );
+  },
+
   listMessages(
     sessionId: string,
     limit = 0,
@@ -87,6 +113,7 @@ export const ChatDb = {
       invoke("create_chat_message", {
         id: msg.id,
         sessionId: msg.sessionId,
+        columnId: msg.columnId,
         providerId: msg.providerId,
         role: msg.role,
         content: msg.content,
@@ -111,12 +138,14 @@ export const ChatDb = {
     );
   },
 
-  /** P11: Delete a single message. */
   deleteMessage(id: string): Promise<void> {
-    return withTimeout(invoke("delete_chat_message", { id }), 10_000, "delete_chat_message");
+    return withTimeout(
+      invoke("delete_chat_message", { id }),
+      10_000,
+      "delete_chat_message",
+    );
   },
 
-  /** P13: Full-text search across all messages. */
   searchMessages(query: string, limit = 20): Promise<MessageSearchResult[]> {
     return withTimeout(
       invoke("search_chat_messages", { query, limit }),
@@ -125,7 +154,6 @@ export const ChatDb = {
     );
   },
 
-  /** P13: Export all messages for a session as raw records. */
   exportSession(sessionId: string): Promise<DbChatMessageRecord[]> {
     return withTimeout(
       invoke("export_session_messages", { sessionId }),

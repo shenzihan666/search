@@ -831,6 +831,7 @@ pub async fn query_stream_provider(
     provider_id: String,
     prompt: String,
     history: Option<Vec<ProviderChatMessage>>,
+    stream_key: Option<String>,
     app: AppHandle,
 ) -> Result<(), String> {
     // Get the specific provider with its API key
@@ -847,8 +848,11 @@ pub async fn query_stream_provider(
 
     let (provider, api_key) = provider_data;
 
-    // Emit chunks with provider-specific event name
-    let event_name = format!("query:chunk:{}", provider.id);
+    // Emit chunks with a caller-provided stream key so duplicate providers
+    // in multiple columns do not conflict on the same event channel.
+    let event_name = stream_key
+        .map(|v| format!("query:chunk:{v}"))
+        .unwrap_or_else(|| format!("query:chunk:{}", provider.id));
     let messages = normalize_messages(history, &prompt)?;
     let streamed = stream_provider_and_emit(&app, &event_name, &provider, &api_key, &messages)
         .await

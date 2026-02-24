@@ -1,18 +1,11 @@
-/**
- * useChatSessions — manages the session list, active selection, and DB persistence.
- *
- * Changes from previous version:
- *   P1  — panes no longer stored in DB or in session state.
- *   P2  — turns is derived from DB message count at read time; not hand-maintained.
- *   P6  — createSessionId uses crypto.randomUUID().
- *   P8  — ChatSession gains systemPrompt; setSystemPrompt action added.
- *   P14 — deleteSession only removes UI state after DB deletion succeeds.
- */
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { ChatDb } from "../lib/chatDb";
-import type { ChatSession, DbChatSessionRecord } from "../types/chat";
-
-// ─── Mappers ────────────────────────────────────────────────────────────────
+import type {
+  ChatSession,
+  ChatSessionColumn,
+  DbChatSessionColumnRecord,
+  DbChatSessionRecord,
+} from "../types/chat";
 
 export function mapDbSession(r: DbChatSessionRecord): ChatSession {
   return {
@@ -27,14 +20,20 @@ export function mapDbSession(r: DbChatSessionRecord): ChatSession {
   };
 }
 
-// ─── ID helpers ──────────────────────────────────────────────────────────────
+function mapDbSessionColumn(r: DbChatSessionColumnRecord): ChatSessionColumn {
+  return {
+    id: r.id,
+    sessionId: r.session_id,
+    position: r.position,
+    providerId: r.provider_id,
+    createdAt: r.created_at,
+    updatedAt: r.updated_at,
+  };
+}
 
-/** P6: Use cryptographically random UUIDs. */
 export function createSessionId(): string {
   return crypto.randomUUID();
 }
-
-// ─── Hook ────────────────────────────────────────────────────────────────────
 
 export interface CreateSessionParams {
   id: string;
@@ -47,12 +46,8 @@ export interface UseChatSessionsReturn {
   sessions: ChatSession[];
   activeSessionId: string | null;
   activeSession: ChatSession | null;
+  activeSessionColumns: ChatSessionColumn[];
   activeSessionIdRef: React.MutableRefObject<string | null>;
-  /**
-   * P2: Returns the current turns count for the active session synchronously.
-   * Reads from sessionsRef so it's always up-to-date even across rapid
-   * state updates.
-   */
   getActiveTurns: () => number;
   selectSession: (id: string) => void;
   clearSession: () => void;
@@ -63,7 +58,6 @@ export interface UseChatSessionsReturn {
     fallback?: ChatSession,
   ) => void;
   renameSession: (id: string, title: string) => Promise<void>;
-  /** P14: Deletes a session from DB first, then from UI. Returns next active id or null. */
   deleteSession: (id: string) => Promise<string | null>;
   persistState: (
     id: string,
@@ -71,6 +65,11 @@ export interface UseChatSessionsReturn {
     prompt: string,
   ) => Promise<void>;
   setSystemPrompt: (id: string, systemPrompt: string) => Promise<void>;
+  loadSessionColumns: (sessionId: string) => Promise<ChatSessionColumn[]>;
+  setColumnProvider: (
+    columnId: string,
+    providerId: string,
+  ) => Promise<ChatSessionColumn | null>;
   reload: () => Promise<void>;
 }
 
@@ -81,6 +80,9 @@ function sortByUpdated(arr: ChatSession[]): ChatSession[] {
 export function useChatSessions(): UseChatSessionsReturn {
   const [sessions, setSessions] = useState<ChatSession[]>([]);
   const [activeSessionId, setActiveSessionId] = useState<string | null>(null);
+  const [activeSessionColumns, setActiveSessionColumns] = useState<
+    ChatSessionColumn[]
+  >([]);
   const activeSessionIdRef = useRef<string | null>(null);
   const sessionsRef = useRef<ChatSession[]>([]);
 
@@ -97,8 +99,6 @@ export function useChatSessions(): UseChatSessionsReturn {
     [sessions, activeSessionId],
   );
 
-  // ── Load from DB on mount ──────────────────────────────────────────────────
-
   const reload = useCallback(async () => {
     try {
       const rows = await ChatDb.listSessions();
@@ -112,26 +112,28 @@ export function useChatSessions(): UseChatSessionsReturn {
     void reload();
   }, [reload]);
 
-  // ── P2: Read turns synchronously from ref ─────────────────────────────────
-
   const getActiveTurns = useCallback((): number => {
     const id = activeSessionIdRef.current;
     if (!id) return 0;
     return sessionsRef.current.find((s) => s.id === id)?.turns ?? 0;
   }, []);
 
-  // ── Actions ───────────────────────────────────────────────────────────────
-
   const selectSession = useCallback((id: string) => {
     setActiveSessionId(id);
+    setActiveSessionColumns([]);
   }, []);
 
   const clearSession = useCallback(() => {
     setActiveSessionId(null);
+    setActiveSessionColumns([]);
   }, []);
 
   const updateSessionLocal = useCallback(
-    (id: string, updater: (s: ChatSession) => ChatSession, fallback?: ChatSession) => {
+    (
+      id: string,
+      updater: (s: ChatSession) => ChatSession,
+      fallback?: ChatSession,
+    ) => {
       setSessions((prev) => {
         const idx = prev.findIndex((s) => s.id === id);
         if (idx === -1) {
@@ -146,6 +148,28 @@ export function useChatSessions(): UseChatSessionsReturn {
     [],
   );
 
+  const loadSessionColumns = useCallback(
+    async (sessionId: string): Promise<ChatSessionColumn[]> => {
+      try {
+        const rows = await ChatDb.listSessionColumns(sessionId);
+        const columns = rows
+          .map(mapDbSessionColumn)
+          .sort((a, b) => a.position - b.position);
+        if (activeSessionIdRef.current === sessionId) {
+          setActiveSessionColumns(columns);
+        }
+        return columns;
+      } catch (err) {
+        console.error("Failed to load session columns:", err);
+        if (activeSessionIdRef.current === sessionId) {
+          setActiveSessionColumns([]);
+        }
+        return [];
+      }
+    },
+    [],
+  );
+
   const createSession = useCallback(
     async (params: CreateSessionParams): Promise<ChatSession> => {
       try {
@@ -155,14 +179,13 @@ export function useChatSessions(): UseChatSessionsReturn {
           params.providerIds,
         );
         const persisted = mapDbSession(saved);
-        const session: ChatSession = {
-          ...persisted,
-          prompt: params.prompt,
-        };
+        const session: ChatSession = { ...persisted, prompt: params.prompt };
         setSessions((prev) =>
           sortByUpdated([session, ...prev.filter((s) => s.id !== session.id)]),
         );
         setActiveSessionId(session.id);
+        activeSessionIdRef.current = session.id;
+        await loadSessionColumns(session.id);
         return session;
       } catch (err) {
         console.error("Failed to persist new session:", err);
@@ -171,7 +194,7 @@ export function useChatSessions(): UseChatSessionsReturn {
           : new Error(`Failed to persist new session: ${String(err)}`);
       }
     },
-    [],
+    [loadSessionColumns],
   );
 
   const renameSession = useCallback(
@@ -186,53 +209,101 @@ export function useChatSessions(): UseChatSessionsReturn {
     [updateSessionLocal],
   );
 
-  /**
-   * P14: DB deletion happens first. UI state is only updated on success.
-   * Returns the new active session id (or null) when deleting the active session.
-   */
-  const deleteSession = useCallback(async (id: string): Promise<string | null> => {
-    try {
-      await ChatDb.deleteSession(id);
-    } catch (err) {
-      console.error("Failed to delete session:", err);
-      // Do NOT update UI state — deletion failed, session should remain visible.
-      return null;
-    }
-
-    const currentActiveId = activeSessionIdRef.current;
-    const remaining = sessionsRef.current.filter((s) => s.id !== id);
-    const isDeletingActive = currentActiveId === id;
-    const nextActiveId = isDeletingActive ? (remaining[0]?.id ?? null) : currentActiveId;
-
-    setSessions(remaining);
-    setActiveSessionId(nextActiveId);
-
-    return isDeletingActive ? nextActiveId : null;
-  }, []);
-
-  /**
-   * P1+P2: Only persists provider list and last prompt.
-   * panes and turns are derived at read time — not stored.
-   */
-  const persistState = useCallback(
-    async (id: string, providerIds: string[], prompt: string) => {
+  const deleteSession = useCallback(
+    async (id: string): Promise<string | null> => {
       try {
-        await ChatDb.saveSessionState(id, providerIds, prompt);
+        await ChatDb.deleteSession(id);
       } catch (err) {
-        console.error("Failed to persist session state:", err);
+        console.error("Failed to delete session:", err);
+        return null;
       }
+
+      const currentActiveId = activeSessionIdRef.current;
+      const remaining = sessionsRef.current.filter((s) => s.id !== id);
+      const isDeletingActive = currentActiveId === id;
+      const nextActiveId = isDeletingActive
+        ? (remaining[0]?.id ?? null)
+        : currentActiveId;
+
+      setSessions(remaining);
+      setActiveSessionId(nextActiveId);
+      activeSessionIdRef.current = nextActiveId;
+      if (isDeletingActive) {
+        setActiveSessionColumns([]);
+      }
+
+      return isDeletingActive ? nextActiveId : null;
     },
     [],
   );
 
-  /** P8: Update the system prompt for a session. */
+  const persistState = useCallback(
+    async (id: string, providerIds: string[], prompt: string) => {
+      try {
+        await ChatDb.saveSessionState(id, providerIds, prompt);
+        updateSessionLocal(id, (s) => ({
+          ...s,
+          providerIds: [...providerIds],
+          prompt,
+          updatedAt: Date.now(),
+        }));
+        if (activeSessionIdRef.current === id) {
+          await loadSessionColumns(id);
+        }
+      } catch (err) {
+        console.error("Failed to persist session state:", err);
+      }
+    },
+    [loadSessionColumns, updateSessionLocal],
+  );
+
   const setSystemPrompt = useCallback(
     async (id: string, systemPrompt: string) => {
       try {
         const saved = await ChatDb.setSystemPrompt(id, systemPrompt);
-        updateSessionLocal(id, (s) => ({ ...s, systemPrompt: saved.system_prompt }));
+        updateSessionLocal(id, (s) => ({
+          ...s,
+          systemPrompt: saved.system_prompt,
+        }));
       } catch (err) {
         console.error("Failed to set system prompt:", err);
+      }
+    },
+    [updateSessionLocal],
+  );
+
+  const setColumnProvider = useCallback(
+    async (
+      columnId: string,
+      providerId: string,
+    ): Promise<ChatSessionColumn | null> => {
+      try {
+        const saved = await ChatDb.setSessionColumnProvider(
+          columnId,
+          providerId,
+        );
+        const mapped = mapDbSessionColumn(saved);
+        setActiveSessionColumns((prev) =>
+          prev
+            .map((col) => (col.id === mapped.id ? mapped : col))
+            .sort((a, b) => a.position - b.position),
+        );
+        updateSessionLocal(mapped.sessionId, (s) => {
+          const providerIds = [...s.providerIds];
+          while (providerIds.length <= mapped.position) {
+            providerIds.push("");
+          }
+          providerIds[mapped.position] = mapped.providerId;
+          return {
+            ...s,
+            providerIds,
+            updatedAt: mapped.updatedAt,
+          };
+        });
+        return mapped;
+      } catch (err) {
+        console.error("Failed to set column provider:", err);
+        return null;
       }
     },
     [updateSessionLocal],
@@ -242,6 +313,7 @@ export function useChatSessions(): UseChatSessionsReturn {
     sessions,
     activeSessionId,
     activeSession,
+    activeSessionColumns,
     activeSessionIdRef,
     getActiveTurns,
     selectSession,
@@ -252,6 +324,8 @@ export function useChatSessions(): UseChatSessionsReturn {
     deleteSession,
     persistState,
     setSystemPrompt,
+    loadSessionColumns,
+    setColumnProvider,
     reload,
   };
 }
