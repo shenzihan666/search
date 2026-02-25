@@ -65,31 +65,31 @@ const CommandInput = React.forwardRef<
   return (
     <div
       data-slot="command-input-wrapper"
-      className="flex items-center h-16 px-5 gap-4"
+      className="flex items-center h-16 px-5 gap-4 border-b border-border"
     >
-      <span className="material-symbols-outlined text-text-secondary text-[22px]">
+      <span className="material-symbols-outlined text-muted-foreground text-[22px]">
         search
       </span>
       <CommandPrimitive.Input
         ref={ref}
         data-slot="command-input"
         className={cn(
-          "flex-1 bg-transparent border-none focus:ring-0 text-[18px] text-text-main placeholder-[#A1A1A1] p-0 font-normal outline-none disabled:cursor-not-allowed disabled:opacity-50",
+          "flex-1 bg-transparent border-none focus:ring-0 text-[18px] text-foreground placeholder:text-muted-foreground p-0 font-normal outline-none disabled:cursor-not-allowed disabled:opacity-50",
           className,
         )}
         {...props}
       />
       <div className="flex items-center gap-3">
-        <div className="flex items-center gap-1.5 px-2 py-1 rounded bg-[#F5F5F5] border border-border-gray">
-          <span className="text-[11px] font-bold text-text-secondary tracking-tight">
+        <div className="flex items-center gap-1.5 px-2 py-1 rounded bg-muted border border-border">
+          <span className="text-[11px] font-bold text-muted-foreground tracking-tight">
             TAB
           </span>
         </div>
-        <div className="flex items-center gap-1.5 px-2 py-1 rounded bg-[#F5F5F5] border border-border-gray">
-          <span className="material-symbols-outlined text-text-secondary text-[14px]">
+        <div className="flex items-center gap-1.5 px-2 py-1 rounded bg-muted border border-border">
+          <span className="material-symbols-outlined text-muted-foreground text-[14px]">
             keyboard_command_key
           </span>
-          <span className="text-[11px] font-bold text-text-secondary tracking-tight">
+          <span className="text-[11px] font-bold text-muted-foreground tracking-tight">
             K
           </span>
         </div>
@@ -107,7 +107,7 @@ function CommandList({
     <CommandPrimitive.List
       data-slot="command-list"
       className={cn(
-        "max-h-[300px] scroll-py-1 overflow-x-hidden overflow-y-auto",
+        "scroll-py-1 overflow-x-hidden overflow-y-auto",
         className,
       )}
       {...props}

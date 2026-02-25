@@ -4,6 +4,16 @@ All changes are archived with implementation details, validation evidence, and r
 
 ## 2026
 
+### 2026-02-25: Theme Sync and Layout Fixes
+- **Status**: Completed
+- **Scope**: App-level theme provider + settings sync, semantic token migration across UI surfaces, search result panel clipping fix, high-DPI logical window coordinate corrections
+- **Archive**: `docs/03-changes/2026/2026-02-25-theme-sync-and-layout-fixes/`
+- **Key Changes**:
+  - Introduced centralized theme synchronization using `next-themes`
+  - Added dynamic search result list height to preserve launcher footer visibility
+  - Switched frontend/backend launcher positioning to logical coordinate calculations for DPI consistency
+  - Normalized major settings/search/chat/provider components to semantic theme tokens
+
 ### 2026-02-24: Session Columns Refactor
 - **Status**: Completed
 - **Scope**: v9 database migration, chat_session_columns table, column-based message linkage

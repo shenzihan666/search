@@ -84,15 +84,15 @@ export function ChatProviderColumn({
   }, [availableProviders, selectedProviderId, provider]);
 
   return (
-    <section className="min-w-[320px] flex-1 min-h-0 flex flex-col h-full border-r border-border-gray last:border-r-0">
-      <header className="px-4 py-3 border-b border-border-gray bg-white flex items-start justify-between shrink-0">
+    <section className="min-w-[320px] flex-1 min-h-0 flex flex-col h-full border-r border-border last:border-r-0 bg-background">
+      <header className="px-4 py-3 border-b border-border bg-card flex items-start justify-between shrink-0">
         <div className="min-w-0 flex-1">
           <div className="flex items-center gap-2">
             <select
               value={selectedProviderId}
               onChange={(e) => onProviderChange(columnId, e.target.value)}
               disabled={providerOptions.length === 0}
-              className="h-7 max-w-full rounded-md border border-border-gray bg-white px-2 text-[11px] font-bold uppercase tracking-[0.08em] outline-none focus:border-black/40"
+              className="h-7 max-w-full rounded-md border border-input bg-background px-2 text-[11px] font-bold uppercase tracking-[0.08em] outline-none focus:border-primary text-foreground"
             >
               {providerOptions.map((item) => (
                 <option key={item.id} value={item.id}>
@@ -103,13 +103,13 @@ export function ChatProviderColumn({
             {isTruncated && (
               <span
                 title="Older messages have been trimmed from the context window"
-                className="text-[9px] font-bold uppercase tracking-wider px-1.5 py-0.5 rounded-full bg-amber-100 text-amber-700 border border-amber-200"
+                className="text-[9px] font-bold uppercase tracking-wider px-1.5 py-0.5 rounded-full bg-amber-100 text-amber-700 border border-amber-200 dark:bg-amber-900/30 dark:text-amber-400 dark:border-amber-800"
               >
                 Context trimmed
               </span>
             )}
           </div>
-          <p className="text-[10px] text-text-secondary mt-0.5 truncate">
+          <p className="text-[10px] text-muted-foreground mt-0.5 truncate">
             {provider?.model ?? "Provider unavailable"}
           </p>
         </div>
@@ -118,7 +118,7 @@ export function ChatProviderColumn({
           type="button"
           onClick={handleCopyAll}
           title="Copy all responses"
-          className="p-1 rounded text-text-secondary hover:text-black hover:bg-[#F5F5F5] transition-colors"
+          className="p-1 rounded text-muted-foreground hover:text-foreground hover:bg-accent transition-colors"
         >
           <span className="material-symbols-outlined text-[15px]">
             content_copy
@@ -128,13 +128,13 @@ export function ChatProviderColumn({
 
       <div
         ref={scrollRef}
-        className="flex-1 min-h-0 overflow-y-auto px-4 py-4 space-y-3 chat-scrollbar"
+        className="flex-1 min-h-0 overflow-y-auto px-4 py-4 space-y-3 chat-scrollbar bg-background"
       >
         {hasMore && onLoadMore && (
           <button
             type="button"
             onClick={onLoadMore}
-            className="w-full text-[11px] text-text-secondary hover:text-black py-1.5 border border-border-gray rounded-md hover:border-black/30 transition-colors"
+            className="w-full text-[11px] text-muted-foreground hover:text-foreground py-1.5 border border-border rounded-md hover:border-foreground/30 transition-colors"
           >
             Load earlier messages
           </button>
@@ -155,14 +155,14 @@ export function ChatProviderColumn({
         ))}
 
         {showThinking && (
-          <div className="flex items-center gap-2 text-text-secondary pl-1">
-            <div className="w-2 h-2 rounded-full bg-black animate-pulse" />
+          <div className="flex items-center gap-2 text-muted-foreground pl-1">
+            <div className="w-2 h-2 rounded-full bg-primary animate-pulse" />
             <span className="text-[12px]">Thinking...</span>
           </div>
         )}
       </div>
 
-      <div className="border-t border-border-gray bg-[#FCFCFC] px-3 py-3 shrink-0">
+      <div className="border-t border-border bg-muted/30 px-3 py-3 shrink-0">
         <div className="flex items-center gap-2">
           <input
             ref={inputRef}
@@ -177,7 +177,7 @@ export function ChatProviderColumn({
             }}
             onMouseDown={(e) => e.stopPropagation()}
             placeholder={`Ask ${provider?.name ?? "model"}...`}
-            className="w-full h-9 rounded-md border border-border-gray bg-white px-3 text-[12px] outline-none focus:border-black/40 transition-colors"
+            className="w-full h-9 rounded-md border border-input bg-background px-3 text-[12px] outline-none focus:border-primary text-foreground placeholder:text-muted-foreground transition-colors"
           />
           <button
             type="button"
@@ -191,7 +191,7 @@ export function ChatProviderColumn({
               handleSubmit();
             }}
             disabled={!input.trim() || isStreaming || !provider}
-            className="h-9 px-3 rounded-md border border-border-gray bg-white text-[11px] font-semibold text-text-secondary hover:border-black hover:text-black disabled:opacity-40 disabled:cursor-not-allowed transition-colors"
+            className="h-9 px-3 rounded-md border border-input bg-background text-[11px] font-semibold text-muted-foreground hover:border-primary hover:text-foreground disabled:opacity-40 disabled:cursor-not-allowed transition-colors"
           >
             Send
           </button>

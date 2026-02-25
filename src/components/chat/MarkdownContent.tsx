@@ -14,40 +14,50 @@ export function MarkdownContent({
   className = "",
 }: MarkdownContentProps) {
   return (
-    <div className={`markdown-body text-[13px] leading-relaxed ${className}`}>
+    <div
+      className={`markdown-body text-[13px] leading-relaxed text-foreground ${className}`}
+    >
       <ReactMarkdown
         components={{
           h1: ({ children }) => (
-            <h1 className="text-[15px] font-bold mt-3 mb-1">{children}</h1>
+            <h1 className="text-[15px] font-bold mt-3 mb-1 text-foreground">
+              {children}
+            </h1>
           ),
           h2: ({ children }) => (
-            <h2 className="text-[14px] font-bold mt-3 mb-1">{children}</h2>
+            <h2 className="text-[14px] font-bold mt-3 mb-1 text-foreground">
+              {children}
+            </h2>
           ),
           h3: ({ children }) => (
-            <h3 className="text-[13px] font-semibold mt-2 mb-1">{children}</h3>
+            <h3 className="text-[13px] font-semibold mt-2 mb-1 text-foreground">
+              {children}
+            </h3>
           ),
           p: ({ children }) => (
-            <p className="mb-2 last:mb-0 whitespace-pre-wrap">{children}</p>
+            <p className="mb-2 last:mb-0 whitespace-pre-wrap text-foreground">
+              {children}
+            </p>
           ),
           ul: ({ children }) => (
-            <ul className="list-disc list-inside mb-2 space-y-0.5">
+            <ul className="list-disc list-inside mb-2 space-y-0.5 text-foreground">
               {children}
             </ul>
           ),
           ol: ({ children }) => (
-            <ol className="list-decimal list-inside mb-2 space-y-0.5">
+            <ol className="list-decimal list-inside mb-2 space-y-0.5 text-foreground">
               {children}
             </ol>
           ),
-          li: ({ children }) => <li className="ml-2">{children}</li>,
+          li: ({ children }) => <li className="ml-2 text-foreground">{children}</li>,
           code: ({ children, className: cls }) => {
             const isBlock = cls?.startsWith("language-");
             return isBlock ? (
-              <code className="block bg-[#F0F0F0] rounded-md px-3 py-2 text-[12px] font-mono overflow-x-auto mb-2 whitespace-pre">
+              <code className="block bg-muted rounded-md px-3 py-2 text-[12px] font-mono overflow-x-auto mb-2 whitespace-pre text-foreground border border-border">
                 {children}
               </code>
             ) : (
-              <code className="bg-[#F0F0F0] rounded px-1 py-0.5 text-[12px] font-mono">
+              <code className="bg-muted rounded px-1 py-0.5 text-[12px] font-mono text-foreground border border-border/50">
                 {children}
               </code>
             );

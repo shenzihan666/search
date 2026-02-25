@@ -149,13 +149,19 @@ fn normalize_hotkey_setting(raw: Option<String>, fallback: &str) -> String {
 
 fn position_main_window(window: &tauri::WebviewWindow) {
     if let Ok(Some(monitor)) = window.current_monitor() {
+        let scale = monitor.scale_factor().max(1.0);
         let size = monitor.size();
         let window_size = window
             .outer_size()
             .unwrap_or(tauri::PhysicalSize::new(900, 600));
-        let x = (size.width as i32 - window_size.width as i32) / 2;
-        let y = (size.height as f64 * 0.2) as i32;
-        let _ = window.set_position(tauri::Position::Physical(tauri::PhysicalPosition::new(
+
+        let monitor_width = size.width as f64 / scale;
+        let monitor_height = size.height as f64 / scale;
+        let window_width = window_size.width as f64 / scale;
+        let x = ((monitor_width - window_width) / 2.0).floor();
+        let y = (monitor_height * 0.2).floor();
+
+        let _ = window.set_position(tauri::Position::Logical(tauri::LogicalPosition::new(
             x, y,
         )));
     }

@@ -19,15 +19,25 @@ import {
 } from "@/lib/appSettings";
 import type { ProviderType } from "@/types/provider";
 import { PROVIDER_TYPE_INFO } from "@/types/provider";
+import { useTheme } from "next-themes";
 
 type RecordingTarget = "toggle" | "open-settings" | null;
+type ThemeMode = "light" | "dark" | "system";
 type SettingsToast = {
   id: number;
   message: string;
   detail?: string;
 };
 
+function normalizeTheme(value: string): ThemeMode {
+  if (value === "light" || value === "dark" || value === "system") {
+    return value;
+  }
+  return "system";
+}
+
 export default function Settings() {
+  const { setTheme, theme } = useTheme();
   const [activeTab, setActiveTab] = useState("llm-models");
   const [isNewProviderOpen, setIsNewProviderOpen] = useState(false);
   const [newProviderType, setNewProviderType] =
@@ -75,7 +85,10 @@ export default function Settings() {
       try {
         const settings = await AppSettingsApi.getAll();
         if (!cancelled) {
-          setAppSettings(settings);
+          setAppSettings({
+            ...settings,
+            theme: normalizeTheme(settings.theme),
+          });
           setToggleHotkeyDraft(settings.hotkeyToggleSearch);
           setOpenSettingsHotkeyDraft(settings.hotkeyOpenSettings);
           setDefaultSystemPromptDraft(settings.defaultSystemPrompt);
@@ -190,11 +203,22 @@ export default function Settings() {
     );
   };
 
-  const handleThemeChange = (theme: "light" | "dark" | "system") => {
-    const previous = appSettings.theme;
-    setAppSettings((prev) => ({ ...prev, theme }));
-    setSettingWithRollback("theme", theme, () =>
-      setAppSettings((prev) => ({ ...prev, theme: previous })),
+  const handleThemeChange = (newTheme: "light" | "dark" | "system") => {
+    const previous = normalizeTheme(appSettings.theme);
+    setTheme(newTheme);
+    setAppSettings((prev) => ({ ...prev, theme: newTheme }));
+    setSettingWithRollback(
+      "theme",
+      newTheme,
+      () => {
+        setTheme(previous);
+        setAppSettings((prev) => ({ ...prev, theme: previous }));
+      },
+      (normalized) => {
+        const normalizedTheme = normalizeTheme(normalized);
+        setTheme(normalizedTheme);
+        setAppSettings((prev) => ({ ...prev, theme: normalizedTheme }));
+      },
     );
   };
 
@@ -278,11 +302,11 @@ export default function Settings() {
     );
   };
 
-  const getThemeCardClass = (theme: "light" | "dark" | "system") =>
-    `flex flex-col items-center gap-2 p-4 border-2 rounded-lg bg-white ${
-      appSettings.theme === theme
-        ? "border-black"
-        : "border-transparent hover:border-gray-200"
+  const getThemeCardClass = (currentTheme: "light" | "dark" | "system") =>
+    `flex flex-col items-center gap-2 p-4 border-2 rounded-lg bg-card ${
+      theme === currentTheme
+        ? "border-primary"
+        : "border-transparent hover:border-border"
     }`;
 
   const formatRecordedKey = useCallback((event: KeyboardEvent) => {
@@ -455,27 +479,27 @@ export default function Settings() {
         return (
           <div className="max-w-[800px] mx-auto py-12 px-10">
             <header className="mb-12">
-              <div className="flex items-center gap-2 text-text-secondary text-xs mb-3">
+              <div className="flex items-center gap-2 text-muted-foreground text-xs mb-3">
                 <span>Settings</span>
                 <span className="material-symbols-outlined text-[14px]">
                   chevron_right
                 </span>
-                <span className="text-black font-medium">General</span>
+                <span className="text-foreground font-medium">General</span>
               </div>
-              <h1 className="text-3xl font-bold tracking-tight mb-3">
+              <h1 className="text-3xl font-bold tracking-tight mb-3 text-foreground">
                 General
               </h1>
-              <p className="text-sm text-text-secondary max-w-xl leading-relaxed">
+              <p className="text-sm text-muted-foreground max-w-xl leading-relaxed">
                 Configure basic application behavior and startup settings.
               </p>
             </header>
             <div className="space-y-8">
-              <div className="border border-border-gray rounded-xl overflow-hidden bg-white shadow-sm">
+              <div className="border border-border rounded-xl overflow-hidden bg-card shadow-sm">
                 <div className="p-6 space-y-6">
                   <div className="flex items-center justify-between">
                     <div>
-                      <h3 className="text-sm font-bold">Launch on Startup</h3>
-                      <p className="text-xs text-text-secondary mt-1">
+                      <h3 className="text-sm font-bold text-foreground">Launch on Startup</h3>
+                      <p className="text-xs text-muted-foreground mt-1">
                         Automatically start the application when you log in.
                       </p>
                     </div>
@@ -489,14 +513,14 @@ export default function Settings() {
                           handleLaunchOnStartupChange(e.target.checked)
                         }
                       />
-                      <div className="w-9 h-5 bg-gray-200 peer-focus:outline-none rounded-full peer peer-checked:after:translate-x-full peer-checked:after:border-white after:content-[''] after:absolute after:top-[2px] after:left-[2px] after:bg-white after:border-gray-300 after:border after:rounded-full after:h-4 after:w-4 after:transition-all peer-checked:bg-black"></div>
+                      <div className="w-9 h-5 bg-muted peer-focus:outline-none rounded-full peer peer-checked:after:translate-x-full peer-checked:after:border-background after:content-[''] after:absolute after:top-[2px] after:left-[2px] after:bg-background after:border-border after:border after:rounded-full after:h-4 after:w-4 after:transition-all peer-checked:bg-primary"></div>
                     </label>
                   </div>
-                  <div className="h-px bg-border-gray w-full"></div>
+                  <div className="h-px bg-border w-full"></div>
                   <div className="flex items-center justify-between">
                     <div>
-                      <h3 className="text-sm font-bold">Hide on Blur</h3>
-                      <p className="text-xs text-text-secondary mt-1">
+                      <h3 className="text-sm font-bold text-foreground">Hide on Blur</h3>
+                      <p className="text-xs text-muted-foreground mt-1">
                         Hide the search window when it loses focus.
                       </p>
                     </div>
@@ -510,13 +534,13 @@ export default function Settings() {
                           handleHideOnBlurChange(e.target.checked)
                         }
                       />
-                      <div className="w-9 h-5 bg-gray-200 peer-focus:outline-none rounded-full peer peer-checked:after:translate-x-full peer-checked:after:border-white after:content-[''] after:absolute after:top-[2px] after:left-[2px] after:bg-white after:border-gray-300 after:border after:rounded-full after:h-4 after:w-4 after:transition-all peer-checked:bg-black"></div>
+                      <div className="w-9 h-5 bg-muted peer-focus:outline-none rounded-full peer peer-checked:after:translate-x-full peer-checked:after:border-background after:content-[''] after:absolute after:top-[2px] after:left-[2px] after:bg-background after:border-border after:border after:rounded-full after:h-4 after:w-4 after:transition-all peer-checked:bg-primary"></div>
                     </label>
                   </div>
-                  <div className="h-px bg-border-gray w-full"></div>
+                  <div className="h-px bg-border w-full"></div>
                   <div>
-                    <h3 className="text-sm font-bold">Default System Prompt</h3>
-                    <p className="text-xs text-text-secondary mt-1 mb-3">
+                    <h3 className="text-sm font-bold text-foreground">Default System Prompt</h3>
+                    <p className="text-xs text-muted-foreground mt-1 mb-3">
                       Used as fallback when current session has no custom system
                       prompt.
                     </p>
@@ -527,14 +551,14 @@ export default function Settings() {
                       onChange={(e) =>
                         setDefaultSystemPromptDraft(e.target.value)
                       }
-                      className="w-full text-[12px] px-3 py-2 rounded-md border border-border-gray bg-white outline-none focus:border-black/40 resize-y transition-colors"
+                      className="w-full text-[12px] px-3 py-2 rounded-md border border-input bg-background text-foreground outline-none focus:border-primary resize-y transition-colors placeholder:text-muted-foreground"
                       placeholder="e.g. You are a concise technical expert. Reply in the same language as the user."
                     />
                     <div className="mt-2 flex justify-end">
                       <button
                         type="button"
                         onClick={saveDefaultSystemPrompt}
-                        className="px-3 py-1.5 bg-black text-white text-xs font-medium rounded-md hover:bg-neutral-800 transition-colors"
+                        className="px-3 py-1.5 bg-primary text-primary-foreground text-xs font-medium rounded-md hover:bg-primary/90 transition-colors"
                       >
                         Save Prompt
                       </button>
@@ -549,29 +573,29 @@ export default function Settings() {
         return (
           <div className="max-w-[800px] mx-auto py-12 px-10">
             <header className="mb-12">
-              <div className="flex items-center gap-2 text-text-secondary text-xs mb-3">
+              <div className="flex items-center gap-2 text-muted-foreground text-xs mb-3">
                 <span>Settings</span>
                 <span className="material-symbols-outlined text-[14px]">
                   chevron_right
                 </span>
-                <span className="text-black font-medium">Hotkeys</span>
+                <span className="text-foreground font-medium">Hotkeys</span>
               </div>
-              <h1 className="text-3xl font-bold tracking-tight mb-3">
+              <h1 className="text-3xl font-bold tracking-tight mb-3 text-foreground">
                 Hotkeys
               </h1>
-              <p className="text-sm text-text-secondary max-w-xl leading-relaxed">
+              <p className="text-sm text-muted-foreground max-w-xl leading-relaxed">
                 Customize keyboard shortcuts to improve your workflow.
               </p>
             </header>
             <div className="space-y-8">
-              <div className="border border-border-gray rounded-xl overflow-hidden bg-white shadow-sm">
+              <div className="border border-border rounded-xl overflow-hidden bg-card shadow-sm">
                 <div className="p-6 space-y-6">
                   <div className="flex items-center justify-between">
                     <div>
-                      <h3 className="text-sm font-bold">
+                      <h3 className="text-sm font-bold text-foreground">
                         Toggle Search Window
                       </h3>
-                      <p className="text-xs text-text-secondary mt-1">
+                      <p className="text-xs text-muted-foreground mt-1">
                         Global shortcut to show or hide the main search
                         interface.
                       </p>
@@ -581,7 +605,7 @@ export default function Settings() {
                         type="text"
                         value={toggleHotkeyDraft}
                         readOnly
-                        className="w-[160px] px-3 py-1.5 bg-gray-100 border border-border-gray rounded-md text-xs font-mono font-medium text-gray-700 focus:outline-none focus:border-black/40"
+                        className="w-[160px] px-3 py-1.5 bg-muted border border-border rounded-md text-xs font-mono font-medium text-foreground focus:outline-none focus:border-primary"
                         placeholder="Alt + Space"
                       />
                       <button
@@ -595,19 +619,19 @@ export default function Settings() {
                         }}
                         className={`px-3 py-1.5 text-xs font-medium rounded-md transition-colors ${
                           recordingTarget === "toggle"
-                            ? "bg-red-600 text-white hover:bg-red-700"
-                            : "bg-black text-white hover:bg-neutral-800"
+                            ? "bg-destructive text-destructive-foreground hover:bg-destructive/90"
+                            : "bg-primary text-primary-foreground hover:bg-primary/90"
                         }`}
                       >
                         {recordingTarget === "toggle" ? "Cancel" : "Record"}
                       </button>
                     </div>
                   </div>
-                  <div className="h-px bg-border-gray w-full"></div>
+                  <div className="h-px bg-border w-full"></div>
                   <div className="flex items-center justify-between">
                     <div>
-                      <h3 className="text-sm font-bold">Open Settings</h3>
-                      <p className="text-xs text-text-secondary mt-1">
+                      <h3 className="text-sm font-bold text-foreground">Open Settings</h3>
+                      <p className="text-xs text-muted-foreground mt-1">
                         Shortcut to open this settings window.
                       </p>
                     </div>
@@ -616,7 +640,7 @@ export default function Settings() {
                         type="text"
                         value={openSettingsHotkeyDraft}
                         readOnly
-                        className="w-[160px] px-3 py-1.5 bg-gray-100 border border-border-gray rounded-md text-xs font-mono font-medium text-gray-700 focus:outline-none focus:border-black/40"
+                        className="w-[160px] px-3 py-1.5 bg-muted border border-border rounded-md text-xs font-mono font-medium text-foreground focus:outline-none focus:border-primary"
                         placeholder="Ctrl + ,"
                       />
                       <button
@@ -630,8 +654,8 @@ export default function Settings() {
                         }}
                         className={`px-3 py-1.5 text-xs font-medium rounded-md transition-colors ${
                           recordingTarget === "open-settings"
-                            ? "bg-red-600 text-white hover:bg-red-700"
-                            : "bg-black text-white hover:bg-neutral-800"
+                            ? "bg-destructive text-destructive-foreground hover:bg-destructive/90"
+                            : "bg-primary text-primary-foreground hover:bg-primary/90"
                         }`}
                       >
                         {recordingTarget === "open-settings"
@@ -640,8 +664,8 @@ export default function Settings() {
                       </button>
                     </div>
                   </div>
-                  <div className="h-px bg-border-gray w-full"></div>
-                  <div className="text-xs text-text-secondary">
+                  <div className="h-px bg-border w-full"></div>
+                  <div className="text-xs text-muted-foreground">
                     {recordingTarget
                       ? "Recording... press your shortcut now, or Esc to cancel."
                       : "Click Record and press the full shortcut combination."}
@@ -655,14 +679,14 @@ export default function Settings() {
                             setRecordingTarget(null);
                             setHotkeyRecordHint(null);
                           }}
-                          className="px-2.5 py-1 rounded-md border border-border-gray bg-white text-[11px] font-medium text-text-secondary hover:border-black/30 hover:text-black transition-colors"
+                          className="px-2.5 py-1 rounded-md border border-border bg-background text-[11px] font-medium text-muted-foreground hover:border-primary/30 hover:text-foreground transition-colors"
                         >
                           Set Alt + Space
                         </button>
                       </div>
                     )}
                     {hotkeyRecordHint && (
-                      <span className="block mt-1 text-red-600">
+                      <span className="block mt-1 text-destructive">
                         {hotkeyRecordHint}
                       </span>
                     )}
@@ -676,61 +700,61 @@ export default function Settings() {
         return (
           <div className="max-w-[800px] mx-auto py-12 px-10">
             <header className="mb-12">
-              <div className="flex items-center gap-2 text-text-secondary text-xs mb-3">
+              <div className="flex items-center gap-2 text-muted-foreground text-xs mb-3">
                 <span>Settings</span>
                 <span className="material-symbols-outlined text-[14px]">
                   chevron_right
                 </span>
-                <span className="text-black font-medium">Appearance</span>
+                <span className="text-foreground font-medium">Appearance</span>
               </div>
-              <h1 className="text-3xl font-bold tracking-tight mb-3">
+              <h1 className="text-3xl font-bold tracking-tight mb-3 text-foreground">
                 Appearance
               </h1>
-              <p className="text-sm text-text-secondary max-w-xl leading-relaxed">
+              <p className="text-sm text-muted-foreground max-w-xl leading-relaxed">
                 Customize how the application looks and feels.
               </p>
             </header>
             <div className="space-y-8">
-              <div className="border border-border-gray rounded-xl overflow-hidden bg-white shadow-sm">
+              <div className="border border-border rounded-xl overflow-hidden bg-card shadow-sm">
                 <div className="p-6 space-y-6">
                   <div>
-                    <h3 className="text-sm font-bold mb-4">Theme</h3>
+                    <h3 className="text-sm font-bold mb-4 text-foreground">Theme</h3>
                     <div className="grid grid-cols-3 gap-4">
                       <button
                         type="button"
                         className={getThemeCardClass("light")}
                         onClick={() => handleThemeChange("light")}
                       >
-                        <div className="w-full h-20 bg-gray-100 rounded-md border border-gray-200 flex items-center justify-center">
+                        <div className="w-full h-20 bg-[#F1F5F9] rounded-md border border-[#E2E8F0] flex items-center justify-center dark:bg-[#1e293b] dark:border-[#334155]">
                           <span className="material-symbols-outlined text-gray-400">
                             light_mode
                           </span>
                         </div>
-                        <span className="text-xs font-medium">Light</span>
+                        <span className="text-xs font-medium text-foreground">Light</span>
                       </button>
                       <button
                         type="button"
                         className={getThemeCardClass("dark")}
                         onClick={() => handleThemeChange("dark")}
                       >
-                        <div className="w-full h-20 bg-gray-900 rounded-md border border-gray-800 flex items-center justify-center">
+                        <div className="w-full h-20 bg-[#1e293b] rounded-md border border-[#334155] flex items-center justify-center">
                           <span className="material-symbols-outlined text-gray-400">
                             dark_mode
                           </span>
                         </div>
-                        <span className="text-xs font-medium">Dark</span>
+                        <span className="text-xs font-medium text-foreground">Dark</span>
                       </button>
                       <button
                         type="button"
                         className={getThemeCardClass("system")}
                         onClick={() => handleThemeChange("system")}
                       >
-                        <div className="w-full h-20 bg-gradient-to-br from-gray-100 to-gray-900 rounded-md border border-gray-300 flex items-center justify-center">
+                        <div className="w-full h-20 bg-gradient-to-br from-gray-100 to-gray-900 rounded-md border border-gray-300 flex items-center justify-center dark:from-gray-800 dark:to-black dark:border-gray-700">
                           <span className="material-symbols-outlined text-gray-400">
                             brightness_auto
                           </span>
                         </div>
-                        <span className="text-xs font-medium">System</span>
+                        <span className="text-xs font-medium text-foreground">System</span>
                       </button>
                     </div>
                   </div>
@@ -743,48 +767,48 @@ export default function Settings() {
         return (
           <div className="max-w-[800px] mx-auto py-12 px-10">
             <header className="mb-12">
-              <div className="flex items-center gap-2 text-text-secondary text-xs mb-3">
+              <div className="flex items-center gap-2 text-muted-foreground text-xs mb-3">
                 <span>Settings</span>
                 <span className="material-symbols-outlined text-[14px]">
                   chevron_right
                 </span>
-                <span className="text-black font-medium">About</span>
+                <span className="text-foreground font-medium">About</span>
               </div>
-              <h1 className="text-3xl font-bold tracking-tight mb-3">About</h1>
-              <p className="text-sm text-text-secondary max-w-xl leading-relaxed">
+              <h1 className="text-3xl font-bold tracking-tight mb-3 text-foreground">About</h1>
+              <p className="text-sm text-muted-foreground max-w-xl leading-relaxed">
                 Information about the application and its creators.
               </p>
             </header>
             <div className="space-y-8">
-              <div className="border border-border-gray rounded-xl overflow-hidden bg-white shadow-sm">
+              <div className="border border-border rounded-xl overflow-hidden bg-white shadow-sm dark:bg-card">
                 <div className="p-8 flex flex-col items-center text-center">
-                  <div className="w-20 h-20 bg-black rounded-2xl flex items-center justify-center mb-4 shadow-lg">
-                    <span className="material-symbols-outlined text-white text-4xl">
+                  <div className="w-20 h-20 bg-primary rounded-2xl flex items-center justify-center mb-4 shadow-lg">
+                    <span className="material-symbols-outlined text-primary-foreground text-4xl">
                       search
                     </span>
                   </div>
-                  <h2 className="text-xl font-bold">AI Quick Search</h2>
-                  <p className="text-sm text-text-secondary mt-1 mb-6">
+                  <h2 className="text-xl font-bold text-foreground">AI Quick Search</h2>
+                  <p className="text-sm text-muted-foreground mt-1 mb-6">
                     Version 1.0.0
                   </p>
 
                   <div className="flex gap-4">
                     <button
                       type="button"
-                      className="px-4 py-2 bg-gray-100 hover:bg-gray-200 text-sm font-medium rounded-md transition-colors"
+                      className="px-4 py-2 bg-secondary hover:bg-secondary/80 text-secondary-foreground text-sm font-medium rounded-md transition-colors"
                     >
                       Check for Updates
                     </button>
                     <button
                       type="button"
-                      className="px-4 py-2 border border-border-gray hover:bg-gray-50 text-sm font-medium rounded-md transition-colors"
+                      className="px-4 py-2 border border-border hover:bg-secondary/50 text-foreground text-sm font-medium rounded-md transition-colors"
                     >
                       View on GitHub
                     </button>
                   </div>
                 </div>
-                <div className="border-t border-border-gray p-6 bg-gray-50">
-                  <div className="text-xs text-text-secondary text-center space-y-2">
+                <div className="border-t border-border p-6 bg-muted/50">
+                  <div className="text-xs text-muted-foreground text-center space-y-2">
                     <p>Built with Tauri, React, and Tailwind CSS.</p>
                     <p>
                       &copy; {new Date().getFullYear()} AI Quick Search. All
@@ -801,17 +825,17 @@ export default function Settings() {
           <div className="max-w-[800px] mx-auto py-12 px-10">
             <header className="mb-12 flex items-start justify-between">
               <div>
-                <div className="flex items-center gap-2 text-text-secondary text-xs mb-3">
+                <div className="flex items-center gap-2 text-muted-foreground text-xs mb-3">
                   <span>Settings</span>
                   <span className="material-symbols-outlined text-[14px]">
                     chevron_right
                   </span>
-                  <span className="text-black font-medium">LLM Models</span>
+                  <span className="text-foreground font-medium">LLM Models</span>
                 </div>
-                <h1 className="text-3xl font-bold tracking-tight mb-3">
+                <h1 className="text-3xl font-bold tracking-tight mb-3 text-foreground">
                   LLM Models
                 </h1>
-                <p className="text-sm text-text-secondary max-w-xl leading-relaxed">
+                <p className="text-sm text-muted-foreground max-w-xl leading-relaxed">
                   Connect your AI provider API keys to enable multi-model chat.
                   Your keys are encrypted and stored locally on your machine.
                 </p>
@@ -836,7 +860,7 @@ export default function Settings() {
                 <DialogTrigger asChild>
                   <button
                     type="button"
-                    className="flex items-center gap-2 px-4 h-9 bg-black text-white text-xs font-medium rounded-md hover:bg-neutral-800 transition-colors shadow-sm shrink-0"
+                    className="flex items-center gap-2 px-4 h-9 bg-primary text-primary-foreground text-xs font-medium rounded-md hover:bg-primary/90 transition-colors shadow-sm shrink-0"
                   >
                     <span className="material-symbols-outlined text-[16px]">
                       add
@@ -861,7 +885,7 @@ export default function Settings() {
                       </label>
                       <select
                         id="provider-type"
-                        className="flex h-9 w-full rounded-md border border-border-gray bg-transparent px-3 py-1 text-sm shadow-sm focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-black"
+                        className="flex h-9 w-full rounded-md border border-input bg-background px-3 py-1 text-sm shadow-sm focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-ring text-foreground"
                         value={newProviderType}
                         onChange={(e) =>
                           handleNewProviderTypeChange(
@@ -889,7 +913,7 @@ export default function Settings() {
                         placeholder="e.g. OpenAI, Claude, Gemini"
                         value={newProviderName}
                         onChange={(e) => setNewProviderName(e.target.value)}
-                        className="flex h-9 w-full rounded-md border border-border-gray bg-transparent px-3 py-1 text-sm shadow-sm transition-colors placeholder:text-text-secondary focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-black"
+                        className="flex h-9 w-full rounded-md border border-input bg-background px-3 py-1 text-sm shadow-sm transition-colors placeholder:text-muted-foreground focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-ring text-foreground"
                       />
                     </div>
                     <div className="grid gap-2">
@@ -901,7 +925,7 @@ export default function Settings() {
                         placeholder="https://api.example.com/v1"
                         value={newProviderBaseUrl}
                         onChange={(e) => setNewProviderBaseUrl(e.target.value)}
-                        className="flex h-9 w-full rounded-md border border-border-gray bg-transparent px-3 py-1 text-sm shadow-sm transition-colors placeholder:text-text-secondary focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-black"
+                        className="flex h-9 w-full rounded-md border border-input bg-background px-3 py-1 text-sm shadow-sm transition-colors placeholder:text-muted-foreground focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-ring text-foreground"
                       />
                     </div>
                     <div className="grid gap-2">
@@ -916,7 +940,7 @@ export default function Settings() {
                         placeholder="e.g. gpt-4o-mini"
                         value={newProviderModel}
                         onChange={(e) => setNewProviderModel(e.target.value)}
-                        className="flex h-9 w-full rounded-md border border-border-gray bg-transparent px-3 py-1 text-sm shadow-sm transition-colors placeholder:text-text-secondary focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-black"
+                        className="flex h-9 w-full rounded-md border border-input bg-background px-3 py-1 text-sm shadow-sm transition-colors placeholder:text-muted-foreground focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-ring text-foreground"
                       />
                     </div>
                     <div className="grid gap-2">
@@ -930,11 +954,11 @@ export default function Settings() {
                           placeholder="sk-..."
                           value={newProviderApiKey}
                           onChange={(e) => setNewProviderApiKey(e.target.value)}
-                          className="flex h-9 w-full rounded-md border border-border-gray bg-transparent px-3 py-1 pr-10 text-sm shadow-sm transition-colors placeholder:text-text-secondary focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-black"
+                          className="flex h-9 w-full rounded-md border border-input bg-background px-3 py-1 pr-10 text-sm shadow-sm transition-colors placeholder:text-muted-foreground focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-ring text-foreground"
                         />
                         <button
                           type="button"
-                          className="absolute right-2 top-1/2 -translate-y-1/2 text-text-secondary hover:text-black transition-colors"
+                          className="absolute right-2 top-1/2 -translate-y-1/2 text-muted-foreground hover:text-foreground transition-colors"
                           onClick={() =>
                             setNewProviderShowApiKey((prev) => !prev)
                           }
@@ -957,7 +981,7 @@ export default function Settings() {
                     <button
                       type="button"
                       onClick={() => setIsNewProviderOpen(false)}
-                      className="px-4 h-9 border border-border-gray text-xs font-medium rounded-md hover:bg-gray-50 transition-colors shadow-sm"
+                      className="px-4 h-9 border border-input bg-background text-xs font-medium rounded-md hover:bg-accent hover:text-accent-foreground transition-colors shadow-sm"
                     >
                       Cancel
                     </button>
@@ -965,7 +989,7 @@ export default function Settings() {
                       type="button"
                       onClick={handleCreateProvider}
                       disabled={isCreatingProvider}
-                      className="px-4 h-9 bg-black text-white text-xs font-medium rounded-md hover:bg-neutral-800 transition-colors shadow-sm disabled:opacity-50"
+                      className="px-4 h-9 bg-primary text-primary-foreground text-xs font-medium rounded-md hover:bg-primary/90 transition-colors shadow-sm disabled:opacity-50"
                     >
                       {isCreatingProvider ? "Creating..." : "Create Provider"}
                     </button>
@@ -975,11 +999,11 @@ export default function Settings() {
             </header>
             <div className="space-y-8">
               {isLoadingProviders ? (
-                <div className="text-center py-12 text-text-secondary">
+                <div className="text-center py-12 text-muted-foreground">
                   Loading providers...
                 </div>
               ) : providers.length === 0 ? (
-                <div className="text-center py-12 text-text-secondary">
+                <div className="text-center py-12 text-muted-foreground">
                   No providers configured. Click "New Provider" to add one.
                 </div>
               ) : (
@@ -1003,19 +1027,19 @@ export default function Settings() {
   };
 
   return (
-    <div className="h-screen w-screen bg-white text-black font-sans flex flex-col overflow-hidden rounded-xl border border-border-gray shadow-2xl">
+    <div className="h-screen w-screen bg-background text-foreground font-sans flex flex-col overflow-hidden rounded-xl border border-border shadow-2xl">
       {/* Custom Titlebar */}
       <div
         data-tauri-drag-region
-        className="h-12 flex items-center justify-between px-4 z-50 bg-[#FAFAFA] border-b border-border-gray relative shrink-0 cursor-move select-none"
+        className="h-12 flex items-center justify-between px-4 z-50 bg-secondary/50 border-b border-border relative shrink-0 cursor-move select-none"
       >
         <div className="flex items-center gap-3 pointer-events-none relative z-10">
-          <div className="w-6 h-6 bg-black rounded-md flex items-center justify-center shadow-sm">
-            <span className="material-symbols-outlined text-white text-[14px]">
+          <div className="w-6 h-6 bg-primary rounded-md flex items-center justify-center shadow-sm">
+            <span className="material-symbols-outlined text-primary-foreground text-[14px]">
               settings
             </span>
           </div>
-          <span className="text-sm font-semibold text-black tracking-tight">
+          <span className="text-sm font-semibold text-foreground tracking-tight">
             Settings
           </span>
         </div>
@@ -1027,12 +1051,12 @@ export default function Settings() {
           data-tauri-drag-region="false"
         >
           {/* Divider */}
-          <div className="w-[1px] h-4 bg-border-gray mx-1"></div>
+          <div className="w-[1px] h-4 bg-border mx-1"></div>
 
           <button
             type="button"
             onClick={() => getCurrentWindow().minimize()}
-            className="w-7 h-7 flex items-center justify-center rounded-md hover:bg-gray-200 text-text-secondary hover:text-black transition-colors cursor-pointer"
+            className="w-7 h-7 flex items-center justify-center rounded-md hover:bg-secondary text-muted-foreground hover:text-foreground transition-colors cursor-pointer"
             title="Minimize"
           >
             <span className="material-symbols-outlined text-[18px]">
@@ -1043,7 +1067,7 @@ export default function Settings() {
           <button
             type="button"
             onClick={() => getCurrentWindow().toggleMaximize()}
-            className="w-7 h-7 flex items-center justify-center rounded-md hover:bg-gray-200 text-text-secondary hover:text-black transition-colors cursor-pointer"
+            className="w-7 h-7 flex items-center justify-center rounded-md hover:bg-secondary text-muted-foreground hover:text-foreground transition-colors cursor-pointer"
             title="Maximize"
           >
             <span className="material-symbols-outlined text-[14px]">
@@ -1054,7 +1078,7 @@ export default function Settings() {
           <button
             type="button"
             onClick={() => getCurrentWindow().hide()}
-            className="w-7 h-7 flex items-center justify-center rounded-md hover:bg-red-500 hover:text-white text-text-secondary transition-colors cursor-pointer"
+            className="w-7 h-7 flex items-center justify-center rounded-md hover:bg-destructive hover:text-destructive-foreground text-muted-foreground transition-colors cursor-pointer"
             title="Close"
           >
             <span className="material-symbols-outlined text-[18px]">close</span>
@@ -1063,24 +1087,23 @@ export default function Settings() {
       </div>
 
       <div className="flex flex-1 overflow-hidden">
-        <aside className="w-[280px] border-r border-border-gray flex flex-col h-full bg-[#FAFAFA] z-20">
+        <aside className="w-[280px] border-r border-border flex flex-col h-full bg-sidebar z-20">
           <div className="p-6 pb-4">
             <div className="flex items-center gap-2 mb-8">
-              <div className="w-8 h-8 bg-black rounded-lg flex items-center justify-center shadow-sm">
-                <span className="material-symbols-outlined text-white text-lg">
+              <div className="w-8 h-8 bg-primary rounded-lg flex items-center justify-center shadow-sm">
+                <span className="material-symbols-outlined text-primary-foreground text-lg">
                   terminal
                 </span>
               </div>
-              <span className="font-bold text-lg tracking-tight">Launcher</span>
+              <span className="font-bold text-lg tracking-tight text-foreground">Launcher</span>
             </div>
             <nav className="space-y-1">
               <button
-                type="button"
                 onClick={() => setActiveTab("general")}
                 className={`w-full flex items-center gap-3 px-3 py-2 text-sm font-medium rounded-md transition-colors ${
                   activeTab === "general"
-                    ? "bg-black text-white shadow-sm"
-                    : "text-text-secondary hover:bg-gray-100 hover:text-black"
+                    ? "bg-primary text-primary-foreground shadow-sm"
+                    : "text-muted-foreground hover:bg-secondary hover:text-foreground"
                 }`}
               >
                 <span className="material-symbols-outlined text-[18px]">
@@ -1089,12 +1112,11 @@ export default function Settings() {
                 General
               </button>
               <button
-                type="button"
                 onClick={() => setActiveTab("llm-models")}
                 className={`w-full flex items-center gap-3 px-3 py-2 text-sm font-medium rounded-md transition-colors ${
                   activeTab === "llm-models"
-                    ? "bg-black text-white shadow-sm"
-                    : "text-text-secondary hover:bg-gray-100 hover:text-black"
+                    ? "bg-primary text-primary-foreground shadow-sm"
+                    : "text-muted-foreground hover:bg-secondary hover:text-foreground"
                 }`}
               >
                 <span className="material-symbols-outlined text-[18px]">
@@ -1103,12 +1125,11 @@ export default function Settings() {
                 LLM Models
               </button>
               <button
-                type="button"
                 onClick={() => setActiveTab("hotkeys")}
                 className={`w-full flex items-center gap-3 px-3 py-2 text-sm font-medium rounded-md transition-colors ${
                   activeTab === "hotkeys"
-                    ? "bg-black text-white shadow-sm"
-                    : "text-text-secondary hover:bg-gray-100 hover:text-black"
+                    ? "bg-primary text-primary-foreground shadow-sm"
+                    : "text-muted-foreground hover:bg-secondary hover:text-foreground"
                 }`}
               >
                 <span className="material-symbols-outlined text-[18px]">
@@ -1117,12 +1138,11 @@ export default function Settings() {
                 Hotkeys
               </button>
               <button
-                type="button"
                 onClick={() => setActiveTab("appearance")}
                 className={`w-full flex items-center gap-3 px-3 py-2 text-sm font-medium rounded-md transition-colors ${
                   activeTab === "appearance"
-                    ? "bg-black text-white shadow-sm"
-                    : "text-text-secondary hover:bg-gray-100 hover:text-black"
+                    ? "bg-primary text-primary-foreground shadow-sm"
+                    : "text-muted-foreground hover:bg-secondary hover:text-foreground"
                 }`}
               >
                 <span className="material-symbols-outlined text-[18px]">
@@ -1131,12 +1151,11 @@ export default function Settings() {
                 Appearance
               </button>
               <button
-                type="button"
                 onClick={() => setActiveTab("about")}
                 className={`w-full flex items-center gap-3 px-3 py-2 text-sm font-medium rounded-md transition-colors ${
                   activeTab === "about"
-                    ? "bg-black text-white shadow-sm"
-                    : "text-text-secondary hover:bg-gray-100 hover:text-black"
+                    ? "bg-primary text-primary-foreground shadow-sm"
+                    : "text-muted-foreground hover:bg-secondary hover:text-foreground"
                 }`}
               >
                 <span className="material-symbols-outlined text-[18px]">
@@ -1146,38 +1165,38 @@ export default function Settings() {
               </button>
             </nav>
           </div>
-          <div className="mt-auto p-6 border-t border-border-gray bg-[#FAFAFA]">
+          <div className="mt-auto p-6 border-t border-border bg-sidebar">
             <div className="flex items-center gap-3">
-              <div className="w-8 h-8 bg-white border border-border-gray rounded-full flex items-center justify-center shadow-sm">
-                <span className="material-symbols-outlined text-slate-500 text-sm">
+              <div className="w-8 h-8 bg-card border border-border rounded-full flex items-center justify-center shadow-sm">
+                <span className="material-symbols-outlined text-muted-foreground text-sm">
                   person
                 </span>
               </div>
               <div>
-                <p className="text-xs font-semibold">Desktop User</p>
-                <p className="text-[10px] text-text-secondary">v2.4.0 Pro</p>
+                <p className="text-xs font-semibold text-foreground">Desktop User</p>
+                <p className="text-[10px] text-muted-foreground">v2.4.0 Pro</p>
               </div>
             </div>
           </div>
         </aside>
-        <main className="flex-1 overflow-y-auto bg-white">
+        <main className="flex-1 overflow-y-auto bg-background">
           {renderTabContent()}
         </main>
       </div>
 
       {toast && (
         <div className="fixed right-6 bottom-6 z-[120] pointer-events-none">
-          <div className="max-w-[420px] min-w-[300px] rounded-xl border border-border-gray bg-white shadow-2xl px-4 py-3">
+          <div className="max-w-[420px] min-w-[300px] rounded-xl border border-destructive bg-destructive/10 shadow-2xl px-4 py-3 backdrop-blur-sm">
             <div className="flex items-start gap-2.5">
-              <span className="material-symbols-outlined text-[18px] text-red-500 mt-[1px]">
+              <span className="material-symbols-outlined text-[18px] text-destructive mt-[1px]">
                 warning
               </span>
               <div className="min-w-0">
-                <p className="text-[13px] font-semibold text-black leading-5">
+                <p className="text-[13px] font-semibold text-foreground leading-5">
                   {toast.message}
                 </p>
                 {toast.detail && (
-                  <p className="text-[11px] text-text-secondary mt-1 break-all leading-4">
+                  <p className="text-[11px] text-muted-foreground mt-1 break-all leading-4">
                     {toast.detail}
                   </p>
                 )}

@@ -45,6 +45,9 @@ function Main() {
   const [mode, setMode] = useState<"search" | "chat">("search");
   const [hideOnBlurEnabled, setHideOnBlurEnabled] = useState(true);
   const [defaultSystemPrompt, setDefaultSystemPrompt] = useState("");
+  const [viewportHeight, setViewportHeight] = useState(() =>
+    typeof window === "undefined" ? 600 : window.innerHeight,
+  );
   const [editingSessionId, setEditingSessionId] = useState<string | null>(null);
   const [editingTitle, setEditingTitle] = useState("");
   // Track pagination per session column.
@@ -166,6 +169,12 @@ function Main() {
             : 1680;
 
   const desiredWindowHeight = mode === "chat" ? 1200 : 600;
+  const searchListMaxHeight = useMemo(() => {
+    // Keep bottom shortcut/status bar visible on smaller/high-DPI viewports.
+    const reservedHeight = 64 + 1 + 40 + 52 + 12;
+    const availableHeight = Math.floor(viewportHeight - reservedHeight);
+    return Math.max(160, Math.min(400, availableHeight));
+  }, [viewportHeight]);
   const prevWindowSizeRef = useRef({
     width: desiredWindowWidth,
     height: desiredWindowHeight,
@@ -260,6 +269,15 @@ function Main() {
   }, []);
 
   useEffect(() => {
+    const handleResize = () => setViewportHeight(window.innerHeight);
+    handleResize();
+    window.addEventListener("resize", handleResize);
+    return () => {
+      window.removeEventListener("resize", handleResize);
+    };
+  }, []);
+
+  useEffect(() => {
     if (windowResizeFrameRef.current !== null) {
       cancelAnimationFrame(windowResizeFrameRef.current);
       windowResizeFrameRef.current = null;
@@ -272,13 +290,27 @@ function Main() {
         const {
           getCurrentWindow,
           currentMonitor,
-          PhysicalPosition,
-          PhysicalSize,
+          LogicalPosition,
+          LogicalSize,
         } = await import("@tauri-apps/api/window");
         const win = getCurrentWindow();
         const monitor = await currentMonitor();
-        const areaSize = monitor?.workArea?.size ?? monitor?.size;
-        const areaPos = monitor?.workArea?.position ?? monitor?.position;
+        const monitorScaleFactor = monitor?.scaleFactor ?? (await win.scaleFactor());
+        const scaleFactor = monitorScaleFactor > 0 ? monitorScaleFactor : 1;
+        const areaSizePhysical = monitor?.workArea?.size ?? monitor?.size;
+        const areaPosPhysical = monitor?.workArea?.position ?? monitor?.position;
+        const areaSize = areaSizePhysical
+          ? {
+              width: areaSizePhysical.width / scaleFactor,
+              height: areaSizePhysical.height / scaleFactor,
+            }
+          : null;
+        const areaPos = areaPosPhysical
+          ? {
+              x: areaPosPhysical.x / scaleFactor,
+              y: areaPosPhysical.y / scaleFactor,
+            }
+          : null;
 
         const maxW = areaSize
           ? Math.max(900, Math.floor(areaSize.width * 0.98))
@@ -307,14 +339,14 @@ function Main() {
           lastAppliedW = roundedW;
           lastAppliedH = roundedH;
           prevWindowSizeRef.current = { width: roundedW, height: roundedH };
-          await win.setSize(new PhysicalSize(roundedW, roundedH));
+          await win.setSize(new LogicalSize(roundedW, roundedH));
           if (cancelled || windowResizeRunRef.current !== runId) return;
           if (areaSize && areaPos) {
             const x = Math.floor(areaPos.x + (areaSize.width - roundedW) / 2);
             const y = Math.floor(
               areaPos.y + (areaSize.height - roundedH) * 0.2,
             );
-            await win.setPosition(new PhysicalPosition(x, y));
+            await win.setPosition(new LogicalPosition(x, y));
           }
         };
 
@@ -775,8 +807,10 @@ function Main() {
           className={`w-full ${cardMaxWidth} transform-gpu transition-[max-width] duration-180 ease-out`}
         >
           <Command
-            className={`vercel-launcher-container bg-bg-main border border-border-gray rounded-xl overflow-hidden flex flex-col ${
-              mode === "chat" ? "h-[1000px] max-h-[calc(100vh-48px)]" : ""
+            className={`vercel-launcher-container bg-background/95 backdrop-blur-xl border border-border rounded-xl overflow-hidden flex flex-col shadow-2xl ${
+              mode === "chat"
+                ? "h-[1000px] max-h-[calc(100vh-48px)]"
+                : "max-h-[calc(100vh-12px)]"
             }`}
             shouldFilter={false}
             value={selectedItemValue}
@@ -825,17 +859,21 @@ function Main() {
                 }
               }}
               autoFocus
+              className="bg-transparent border-none focus:ring-0 text-foreground placeholder:text-muted-foreground"
             />
 
             <div
-              className={`border-t border-border-gray ${
+              className={`border-t border-border ${
                 mode === "chat" ? "flex-1 min-h-0 flex flex-col" : ""
               }`}
             >
               {mode === "search" ? (
-                <CommandList className="max-h-[400px] overflow-y-auto no-scrollbar">
-                  <div className="px-5 py-2.5 bg-[#FAFAFA]">
-                    <span className="text-[11px] font-semibold text-text-secondary uppercase tracking-[0.05em]">
+                <CommandList
+                  className="overflow-y-auto no-scrollbar"
+                  style={{ maxHeight: `${searchListMaxHeight}px` }}
+                >
+                  <div className="px-5 py-2.5 bg-muted/50">
+                    <span className="text-[11px] font-semibold text-muted-foreground uppercase tracking-[0.05em]">
                       {isSearchQuery ? "Applications" : "Suggestions"}
                     </span>
                   </div>
@@ -844,10 +882,10 @@ function Main() {
                       <CommandItem
                         key={result.app.path}
                         value={result.app.path}
-                        className="w-full flex items-center px-5 py-3.5 hover:bg-[#F9F9F9] transition-all group text-left cursor-pointer data-[selected=true]:bg-[#F9F9F9]"
+                        className="w-full flex items-center px-5 py-3.5 hover:bg-muted/80 transition-all group text-left cursor-pointer data-[selected=true]:bg-muted"
                         onSelect={() => handleAppSelect(result.app)}
                       >
-                        <div className="w-9 h-9 rounded border border-border-gray flex items-center justify-center bg-white">
+                        <div className="w-9 h-9 rounded border border-border flex items-center justify-center bg-card">
                           {appIcons[result.app.path] ? (
                             <img
                               src={appIcons[result.app.path] ?? ""}
@@ -855,24 +893,24 @@ function Main() {
                               className="w-5 h-5 object-contain"
                             />
                           ) : (
-                            <span className="material-symbols-outlined text-[20px] text-text-main">
+                            <span className="material-symbols-outlined text-[20px] text-foreground">
                               apps
                             </span>
                           )}
                         </div>
                         <div className="ml-4 flex-1">
-                          <p className="text-[15px] font-medium tracking-tight">
+                          <p className="text-[15px] font-medium tracking-tight text-foreground">
                             {result.app.name}
                           </p>
-                          <p className="text-[13px] text-text-secondary">
+                          <p className="text-[13px] text-muted-foreground">
                             {result.app.publisher ?? "Application"}
                           </p>
                         </div>
                         <div className="flex items-center gap-2 opacity-0 group-hover:opacity-100 transition-opacity">
-                          <span className="text-[12px] text-text-secondary font-medium">
+                          <span className="text-[12px] text-muted-foreground font-medium">
                             Open
                           </span>
-                          <span className="material-symbols-outlined text-text-secondary text-[18px]">
+                          <span className="material-symbols-outlined text-muted-foreground text-[18px]">
                             keyboard_return
                           </span>
                         </div>
@@ -881,7 +919,7 @@ function Main() {
                   </div>
                 </CommandList>
               ) : (
-                <div className="bg-white flex-1 min-h-0 flex overflow-hidden">
+                <div className="bg-background flex-1 min-h-0 flex overflow-hidden">
                   {/* Session sidebar */}
                   <ChatSidebar
                     sessions={sessions.sessions}
@@ -902,14 +940,14 @@ function Main() {
                   />
 
                   {/* Provider columns */}
-                  <div className="flex-1 flex flex-col min-w-0 min-h-0">
-                    <div className="px-5 py-2.5 bg-[#FAFAFA] border-b border-border-gray flex items-center justify-between shrink-0">
-                      <span className="text-[11px] font-semibold text-text-secondary uppercase tracking-[0.05em]">
+                  <div className="flex-1 flex flex-col min-w-0 min-h-0 bg-background">
+                    <div className="px-5 py-2.5 bg-muted/30 border-b border-border flex items-center justify-between shrink-0">
+                      <span className="text-[11px] font-semibold text-muted-foreground uppercase tracking-[0.05em]">
                         Model Responses
                       </span>
                       <div className="flex items-center gap-3">
                         {query.chatPrompt && query.isBroadcastPrompt && (
-                          <span className="text-[11px] text-text-secondary truncate max-w-[40%]">
+                          <span className="text-[11px] text-muted-foreground truncate max-w-[40%]">
                             {query.chatPrompt}
                           </span>
                         )}
@@ -917,15 +955,15 @@ function Main() {
                     </div>
 
                     {!sessions.activeSession ? (
-                      <div className="flex-1 flex items-center justify-center text-text-secondary text-sm">
+                      <div className="flex-1 flex items-center justify-center text-muted-foreground text-sm">
                         Create a session to start multi-model chat.
                       </div>
                     ) : activeChatColumns.length === 0 ? (
-                      <div className="flex-1 flex items-center justify-center text-text-secondary text-sm">
+                      <div className="flex-1 flex items-center justify-center text-muted-foreground text-sm">
                         No providers with API keys. Add API keys in Settings.
                       </div>
                     ) : (
-                      <div className="flex-1 min-h-0 flex overflow-x-auto">
+                      <div className="flex-1 min-h-0 flex overflow-x-auto divide-x divide-border">
                         {activeChatColumns.map(({ column, provider }) => (
                           <ChatProviderColumn
                             key={column.id}
@@ -978,7 +1016,7 @@ function Main() {
               )}
             </div>
 
-            <div className="px-5 py-3 border-t border-border-gray bg-[#FAFAFA] flex justify-between items-center shrink-0">
+            <div className="px-5 py-3 border-t border-border bg-muted/50 flex justify-between items-center shrink-0">
               <div className="flex items-center gap-5">
                 {mode === "search" ? (
                   <>
@@ -1003,14 +1041,14 @@ function Main() {
                       query.isRunning ? "bg-amber-500" : "bg-green-500"
                     }`}
                   />
-                  <span className="text-[12px] text-text-secondary font-medium">
+                  <span className="text-[12px] text-muted-foreground font-medium">
                     {query.isRunning ? "AI Generating..." : "AI Online"}
                   </span>
                 </div>
 
                 {maxMultiplier > 1 && (
                   <>
-                    <div className="h-3 w-px bg-border-gray" />
+                    <div className="h-3 w-px bg-border" />
                     <button
                       type="button"
                       onClick={() =>
@@ -1019,18 +1057,18 @@ function Main() {
                         )
                       }
                       title={`Query ${multiplier} model${multiplier > 1 ? "s" : ""} simultaneously`}
-                      className="px-2 py-0.5 rounded border border-border-gray bg-white text-[11px] font-bold text-text-secondary hover:border-black hover:text-black transition-colors"
+                      className="px-2 py-0.5 rounded border border-border bg-card text-[11px] font-bold text-muted-foreground hover:border-primary hover:text-foreground transition-colors"
                     >
                       {multiplier}x
                     </button>
                   </>
                 )}
 
-                <div className="h-3 w-px bg-border-gray" />
+                <div className="h-3 w-px bg-border" />
 
                 <button
                   type="button"
-                  className="flex items-center gap-1.5 text-text-secondary hover:text-black transition-colors group bg-transparent border-0 p-0 cursor-pointer"
+                  className="flex items-center gap-1.5 text-muted-foreground hover:text-foreground transition-colors group bg-transparent border-0 p-0 cursor-pointer"
                   onClick={async () => {
                     const { Window } = await import("@tauri-apps/api/window");
                     const w = new Window("settings");
@@ -1038,7 +1076,7 @@ function Main() {
                     await w.setFocus();
                   }}
                 >
-                  <span className="material-symbols-outlined text-[16px] group-hover:text-black">
+                  <span className="material-symbols-outlined text-[16px] group-hover:text-foreground">
                     settings
                   </span>
                   <span className="text-[12px] font-medium">Settings</span>
@@ -1055,10 +1093,10 @@ function Main() {
 function Kbd({ label, hint }: { label: string; hint: string }) {
   return (
     <div className="flex items-center gap-2">
-      <kbd className="px-1.5 py-0.5 rounded border border-border-gray bg-white text-[10px] font-sans font-bold text-text-secondary shadow-sm">
+      <kbd className="px-1.5 py-0.5 rounded border border-border bg-card text-[10px] font-sans font-bold text-muted-foreground shadow-sm">
         {label}
       </kbd>
-      <span className="text-[12px] text-text-secondary">{hint}</span>
+      <span className="text-[12px] text-muted-foreground">{hint}</span>
     </div>
   );
 }

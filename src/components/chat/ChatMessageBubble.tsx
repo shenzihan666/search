@@ -74,16 +74,16 @@ export function ChatMessageBubble({
         }}
         className={`max-w-[94%] rounded-xl px-3 py-2 relative cursor-pointer ${
           isError
-            ? "bg-red-50 border border-red-200 text-red-700"
-            : "bg-[#F5F5F5] border border-border-gray text-text-main"
+            ? "bg-destructive/10 border border-destructive/20 text-destructive dark:text-red-400"
+            : "bg-muted/50 border border-border text-foreground hover:bg-muted/70 transition-colors"
         }`}
       >
-        <p className="text-[10px] uppercase tracking-[0.06em] text-text-secondary mb-1">
+        <p className="text-[10px] uppercase tracking-[0.06em] text-muted-foreground mb-1 select-none">
           {label}
         </p>
 
         {isStreaming ? (
-          <p className="text-[13px] leading-relaxed whitespace-pre-wrap">
+          <p className="text-[13px] leading-relaxed whitespace-pre-wrap text-foreground">
             {message.content}
           </p>
         ) : (
@@ -103,7 +103,7 @@ export function ChatMessageBubble({
                 type="button"
                 onClick={handleCopy}
                 title="Copy response"
-                className="flex items-center gap-1 px-1.5 py-0.5 rounded text-[10px] text-text-secondary hover:text-black hover:bg-white border border-transparent hover:border-border-gray transition-all"
+                className="flex items-center gap-1 px-1.5 py-0.5 rounded text-[10px] text-muted-foreground hover:text-foreground hover:bg-muted border border-transparent hover:border-border transition-all"
               >
                 <span className="material-symbols-outlined text-[12px]">
                   {copied ? "check" : "content_copy"}
