@@ -20,6 +20,7 @@ Use this runbook to verify database migrations after schema changes.
 | v6 | Chat messages | `v6_chat_messages.rs` |
 | v7 | Schema refactor + FTS5 | `v7_refactor_schema.rs` |
 | v8 | Per-provider messages | `v8_fix_shared_messages.rs` |
+| v9 | Session columns abstraction | `v9_session_columns.rs` |
 
 ## Test Scenarios
 
@@ -39,13 +40,13 @@ Use this runbook to verify database migrations after schema changes.
    ```powershell
    sqlite3 "$env:APPDATA\com.search.app\search.db" "SELECT * FROM schema_version;"
    ```
-   Expected: `8|<timestamp>`
+   Expected: `9|<timestamp>`
 
 4. Verify all tables exist:
    ```powershell
    sqlite3 "$env:APPDATA\com.search.app\search.db" ".tables"
    ```
-   Expected: `apps chat_messages chat_messages_fts chat_sessions providers schema_version settings`
+   Expected: `apps chat_messages chat_messages_fts chat_session_columns chat_sessions providers schema_version settings`
 
 ### Scenario 2: Upgrade from v4
 
@@ -55,7 +56,7 @@ Use this runbook to verify database migrations after schema changes.
    ```sql
    SELECT version FROM schema_version ORDER BY version;
    ```
-   Expected rows: `1, 2, 3, 4, 5, 6, 7, 8`
+   Expected rows: `1, 2, 3, 4, 5, 6, 7, 8, 9`
 
 4. Verify chat tables created:
    ```sql
@@ -190,4 +191,4 @@ Downgrading schema is not supported. If migration fails:
 
 | Tester | Date | DB Version | Result |
 |--------|------|------------|--------|
-| | | 8 | Pass / Fail |
+| | | 9 | Pass / Fail |

@@ -40,7 +40,7 @@ AI Quick Search is a Tauri-based desktop application following a hybrid architec
 | **db** | SQLite persistence layer | `db/connection.rs`, `db/repositories/` |
 | **provider** | AI provider integrations | `provider/openai.rs`, `provider/mod.rs` |
 
-## Database Schema (v8)
+## Database Schema (v9)
 
 ### Tables
 
@@ -70,9 +70,18 @@ chat_sessions
 ├── title, provider_ids_json, prompt, system_prompt
 ├── created_at, updated_at
 
+chat_session_columns (v9)
+├── id: string (primary, format: "{session_id}:c{position}")
+├── session_id (FK → chat_sessions)
+├── position: integer (column order 0-3)
+├── provider_id: string
+├── created_at, updated_at
+
 chat_messages
 ├── id: string (UUID, primary)
-├── session_id, provider_id (FK → chat_sessions)
+├── session_id (FK → chat_sessions)
+├── column_id (FK → chat_session_columns, v9)
+├── provider_id: string (legacy, kept for compatibility)
 ├── role, content, status
 ├── created_at, updated_at
 
@@ -92,6 +101,7 @@ chat_messages_fts (FTS5 virtual table)
 | v6 | Chat messages persistence |
 | v7 | Schema refactor (remove panes, add FTS5) |
 | v8 | Per-provider message ownership |
+| v9 | Session columns abstraction for column reordering |
 
 ## Data Flow
 

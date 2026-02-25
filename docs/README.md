@@ -41,7 +41,7 @@ docs/
 
 | Component | Version | Status |
 |-----------|---------|--------|
-| Database Schema | v8 | Active |
+| Database Schema | v9 | Active |
 | Frontend | React 19 | Active |
 | Backend | Tauri v2 | Active |
 | Platform | Windows | Supported |
