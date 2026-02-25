@@ -1,6 +1,6 @@
 [package]
 name = "ai-quick-search"
-version = "0.1.0"
+version = "0.2.0"
 description = "AI Quick Search - A lightweight desktop AI search bar"
 authors = ["you"]
 edition = "2021"
